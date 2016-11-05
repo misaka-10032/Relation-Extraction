@@ -1,1 +1,4 @@
-This is the project repo for 10807
+# Relation Extraction
+
+## Download Data
+    make getdata
