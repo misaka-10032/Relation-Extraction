@@ -91,7 +91,12 @@ def get_token_list(sentence):
             tokens = seperate_words_and_symbols(token)
         t_list.extend(tokens)
         cur_index = len(t_list)
-    return t_list, (e1_start_pos, e1_end_pos, e2_start_pos, e2_end_pos)
+    result = t_list[:e1_start_pos] \
+                + ["_".join(t_list[e1_start_pos:e1_end_pos+1])] \
+                + t_list[e1_end_pos+1:e2_start_pos] \
+                + ["_".join(t_list[e2_start_pos:e2_end_pos+1])] \
+                + t_list[e2_end_pos+1:]
+    return result, (e1_start_pos, e2_start_pos - e1_end_pos + e1_start_pos)
 
 def get_vocab_from_examples(data):
     '''
@@ -127,14 +132,13 @@ def parse_data(file_list):
 
                 #remove number, quote
                 sentence = f.readline().strip().split('\t')[1][1:-1]
-                sentence = re.sub("(?P<w1>\w+)-(?P<w2>\w+)", "\g<w1> - \g<w2>", sentence)
-                sentence = ["</b>"] + sentence.split() + ["</s>"]
+                sentence = re.sub("(?P<w1>\w+)-(?P<w2>\w+)", "\g<w1> \g<w2>", sentence)
+                sentence = ["^"] + sentence.split() + ["#"]
                 relation = f.readline().strip()
                 comment = f.readline()
                 f.readline()    # for the blank line
 
-                token_list, (e1_start_pos, e1_end_pos, e2_start_pos, e2_end_pos)\
-                    = get_token_list(sentence)
+                token_list, (e1_pos, e2_pos) = get_token_list(sentence)
 
                 e1_relation_pos = relation.find("e1")
                 e2_relation_pos = relation.find("e2")
@@ -143,9 +147,9 @@ def parse_data(file_list):
                 is_reversed = e1_relation_pos > e2_relation_pos
                 relation_id = relation_to_id(relation, is_reversed)
 
-                # print t_list, t_list[e1_start_pos:e1_end_pos+1], t_list[e2_start_pos:e2_end_pos+1]
+                # print token_list, token_list[e1_pos], token_list[e2_pos]
                 data.append((tuple(token_list),
-                             (e1_start_pos, e1_end_pos, e2_start_pos, e2_end_pos),
+                             (e1_pos, e2_pos),
                              relation_id))
     return data
 
@@ -218,11 +222,11 @@ def get_id_instances(text_instances, word2id):
         result.append((tuple(sentence), entry[1], entry[2]))
     return result
 
-if __name__ == "__main__":
+if __name__ == "__mains__":
     text_instances = parse_data(["train.txt", "test.txt"])
     vocab = get_vocab_from_examples(text_instances)
-    vocab.add("</b>") # beginning sign
-    vocab.add("</s>") # ending sign
+    vocab.add("^") # beginning sign
+    vocab.add("$") # ending sign
     word2id = generate_word_to_id_dict(vocab)
     word2vec = get_word_to_vec_dict("vec.txt", vocab)
     id2vec = generate_id_to_vec_dict(word2id, word2vec)
@@ -255,5 +259,5 @@ if __name__ == "__main__":
             count += 1
         else: break
 
-# print parse_data(["dev.txt"])
+print parse_data(["dev.txt"])
 # print get_vocab_from_examples(parse_data(["train.txt", "test.txt"]))
