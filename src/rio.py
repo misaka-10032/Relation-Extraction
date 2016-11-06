@@ -8,7 +8,6 @@ def load_data(file_path):
                 ((token1_id, token2_id, ...),
                     (entity1_pos, entity2_pos),
                     relation_id)
-              reversed = True means relation(e2, e1)
     """
     return pickle.load(open(file_path))
 
