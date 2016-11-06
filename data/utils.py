@@ -163,7 +163,7 @@ def generate_word_to_id_dict(vocab):
     '''
     result = dict()
     for i, word in enumerate(vocab):
-        result[word] = i
+        result[word] = i + 1
     return result
 
 def generate_id_to_vec_dict(word2id, word2vec):
@@ -222,7 +222,7 @@ def get_id_instances(text_instances, word2id):
         result.append((tuple(sentence), entry[1], entry[2]))
     return result
 
-if __name__ == "__mains__":
+if __name__ == "__main__":
     text_instances = parse_data(["train.txt", "test.txt"])
     vocab = get_vocab_from_examples(text_instances)
     vocab.add("^") # beginning sign
@@ -259,5 +259,5 @@ if __name__ == "__mains__":
             count += 1
         else: break
 
-print parse_data(["dev.txt"])
+#print parse_data(["dev.txt"])
 # print get_vocab_from_examples(parse_data(["train.txt", "test.txt"]))
