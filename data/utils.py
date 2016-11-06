@@ -128,7 +128,7 @@ def parse_data(file_list):
                 #remove number, quote
                 sentence = f.readline().strip().split('\t')[1][1:-1]
                 sentence = re.sub("(?P<w1>\w+)-(?P<w2>\w+)", "\g<w1> - \g<w2>", sentence)
-                sentence = sentence.split()
+                sentence = ["</b>"] + sentence.split() + ["</s>"]
                 relation = f.readline().strip()
                 comment = f.readline()
                 f.readline()    # for the blank line
@@ -221,6 +221,8 @@ def get_id_instances(text_instances, word2id):
 if __name__ == "__main__":
     text_instances = parse_data(["train.txt", "test.txt"])
     vocab = get_vocab_from_examples(text_instances)
+    vocab.add("</b>") # beginning sign
+    vocab.add("</s>") # ending sign
     word2id = generate_word_to_id_dict(vocab)
     word2vec = get_word_to_vec_dict("vec.txt", vocab)
     id2vec = generate_id_to_vec_dict(word2id, word2vec)

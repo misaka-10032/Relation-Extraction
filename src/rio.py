@@ -24,6 +24,7 @@ if __name__ == "__main__":
     instances = load_data("../data/instances.bin")
     id2vec = load_id2vec("../data/id2vec.bin")
     label_set = set()
+    print instances[:5]
     for entry in instances:
         label_set.add(entry[2])
     print label_set
