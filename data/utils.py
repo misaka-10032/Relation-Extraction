@@ -3,6 +3,20 @@ import pickle
 import numpy as np
 import string
 
+def relation_to_id(label, is_reversed):
+    labels = ['Instrument-Agency',
+              'Entity-Origin',
+              'Component-Whole',
+              'Cause-Effect',
+              'Entity-Destination',
+              'Product-Producer',
+              'Member-Collection',
+              'Content-Container',
+              'Message-Topic',
+              "Other"]
+    return labels.index(label) * 2 + is_reversed
+
+
 def seperate_words_and_symbols(token):
     i = 0
     tokens = list()
@@ -85,9 +99,7 @@ def get_vocab_from_examples(data):
         data: list of examples in the form of:
                 ((token1, token2, ...),
                     (entity1_pos, entity2_pos),
-                    relation,
-                    reversed)
-              reversed = True means relation(e2, e1)
+                    relation_id)
     Returns:
         vocab: a string set of words appearing in data
     '''
@@ -105,9 +117,7 @@ def parse_data(file_list):
         data: list of examples in the form of:
                 ((token1, token2, ...),
                     (entity1_pos, entity2_pos),
-                    relation,
-                    reversed)
-              reversed = True means relation(e2, e1)
+                    relation_id)
     '''
     data = list()
     for file_name in file_list:
@@ -126,16 +136,17 @@ def parse_data(file_list):
                 token_list, (e1_start_pos, e1_end_pos, e2_start_pos, e2_end_pos)\
                     = get_token_list(sentence)
 
-                relation = re.sub("\(e\d.*e\d\)", "", relation)
-
                 e1_relation_pos = relation.find("e1")
                 e2_relation_pos = relation.find("e2")
+
+                relation = re.sub("\(e\d.*e\d\)", "", relation)
+                is_reversed = e1_relation_pos > e2_relation_pos
+                relation_id = relation_to_id(relation, is_reversed)
 
                 # print t_list, t_list[e1_start_pos:e1_end_pos+1], t_list[e2_start_pos:e2_end_pos+1]
                 data.append((tuple(token_list),
                              (e1_start_pos, e1_end_pos, e2_start_pos, e2_end_pos),
-                             relation,
-                             e1_relation_pos > e2_relation_pos))
+                             relation_id))
     return data
 
 
@@ -190,25 +201,21 @@ def get_id_instances(text_instances, word2id):
         text_instances: list of examples in the form of:
                 ((token1, token2, ...),
                     (entity1_pos, entity2_pos),
-                    relation,
-                    reversed)
-              reversed = True means relation(e2, e1)
+                    relation_id)
         word2id: a word to id dict
 
     Returns:
         result: list of examples in the form of:
                 ((token1_id, token2_id, ...),
                     (entity1_pos, entity2_pos),
-                    relation,
-                    reversed)
-              reversed = True means relation(e2, e1)
+                    relation_id)
     '''
     result = list()
     for entry in text_instances:
         sentence = list()
         for token in entry[0]:
             sentence.append(word2id[token])
-        result.append((tuple(sentence), entry[1], entry[2], entry[3]))
+        result.append((tuple(sentence), entry[1], entry[2]))
     return result
 
 if __name__ == "__main__":
@@ -221,16 +228,28 @@ if __name__ == "__main__":
     pickle.dump(id_instances, open("instances.bin", "w"))
     pickle.dump(id2vec, open("id2vec.bin", "w"))
     pickle.dump(word2id, open("word2id.bin", "w"))
+
+    print "Label ID:\n"
+    labels = ['Instrument-Agency', 'Entity-Origin', 'Component-Whole', 'Cause-Effect', 'Entity-Destination', 'Product-Producer', 'Member-Collection', 'Content-Container', 'Message-Topic', "Other"]
+    for label in labels:
+        reversed_label = "-".join(reversed(label.split("-")))
+        print "%s:%d\t%s:%d" % (label, relation_to_id(label, False), reversed_label, relation_to_id(label, True))
+
+    print "\nInstance Example:\n", id_instances[0]
+
+    print "\n\nID to Vec Example:"
     count = 0
     for k in id2vec:
         print k, id2vec[k]
-        if count < 5:
+        if count < 1:
             count += 1
         else: break
     count = 0
+
+    print "\n\nWord to ID Example:"
     for k in word2id:
         print k, word2id[k]
-        if count < 5:
+        if count < 1:
             count += 1
         else: break
 
