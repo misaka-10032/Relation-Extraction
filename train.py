@@ -14,7 +14,7 @@ from rio import load_data,load_id2vec
 # ==================================================
 
 # Data loading params
-tf.flags.DEFINE_float("dev_sample_percentage", .1, "Percentage of the training data to use for validation")
+tf.flags.DEFINE_float("dev_sample_percentage", .25, "Percentage of the training data to use for validation")
 # tf.flags.DEFINE_string("positive_data_file", "./data/rt-polaritydata/rt-polarity.pos", "Data source for the positive data.")
 # tf.flags.DEFINE_string("negative_data_file", "./data/rt-polaritydata/rt-polarity.neg", "Data source for the positive data.")
 
@@ -22,16 +22,17 @@ tf.flags.DEFINE_string("data_file", "data/instances.bin", "Data source for the d
 
 # Model Hyperparameters
 tf.flags.DEFINE_integer("embedding_dim", 50, "Dimensionality of character embedding (default: 50)")
-tf.flags.DEFINE_string("filter_sizes", "3,4,5", "Comma-separated filter sizes (default: '3,4,5')")
+#tf.flags.DEFINE_string("filter_sizes", "3,4,5", "Comma-separated filter sizes (default: '3,4,5')")
+tf.flags.DEFINE_string("filter_sizes", "2,3,4,5", "Comma-separated filter sizes (default: '3,4,5')")
 tf.flags.DEFINE_integer("num_filters", 50, "Number of filters per filter size (default: 128)")
 tf.flags.DEFINE_float("dropout_keep_prob", 0.5, "Dropout keep probability (default: 0.5)")
-tf.flags.DEFINE_float("l2_reg_lambda", 0.0, "L2 regularizaion lambda (default: 0.0)")
+tf.flags.DEFINE_float("l2_reg_lambda", 0.01, "L2 regularizaion lambda (default: 0.0)")
 
 # Training parameters
-tf.flags.DEFINE_integer("batch_size", 64, "Batch Size (default: 64)")
-tf.flags.DEFINE_integer("num_epochs", 200, "Number of training epochs (default: 200)")
-tf.flags.DEFINE_integer("evaluate_every", 100, "Evaluate model on dev set after this many steps (default: 100)")
-tf.flags.DEFINE_integer("checkpoint_every", 100, "Save model after this many steps (default: 100)")
+tf.flags.DEFINE_integer("batch_size", 100, "Batch Size (default: 64)")
+tf.flags.DEFINE_integer("num_epochs", 100, "Number of training epochs (default: 200)")
+tf.flags.DEFINE_integer("evaluate_every", 60, "Evaluate model on dev set after this many steps (default: 100)")
+tf.flags.DEFINE_integer("checkpoint_every", 60, "Save model after this many steps (default: 100)")
 # Misc Parameters
 tf.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
 tf.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on devices")
@@ -59,12 +60,12 @@ print("Loading data...")
 # x = np.array(list(vocab_processor.fit_transform(x_text)))
 
 instances = load_data("data/instances.bin")
-x = [item[0] for item in instances]
+x = [item[0] for item in instances[:8000]]
 max_len = max([len(item) for item in x])
 x = [list(item) + [0]*(max_len - len(item)) for item in x]
 x = np.array(x)
 
-y = [item[2] for item in instances]
+y = [item[2] for item in instances[:8000]]
 # values = [1, 0, 3]
 n_values = np.max(y) + 1
 y = np.eye(n_values)[y]
@@ -75,7 +76,7 @@ vocabulary_size = 22132
 
 
 # Randomly shuffle data
-np.random.seed(10)
+#np.random.seed(10)
 shuffle_indices = np.random.permutation(np.arange(len(y)))
 x_shuffled = x[shuffle_indices]
 y_shuffled = y[shuffle_indices]
@@ -134,8 +135,8 @@ with tf.Graph().as_default():
 
         # Train Summaries
         train_summary_op = tf.merge_summary([loss_summary, acc_summary, grad_summaries_merged])
-        train_summary_dir = os.path.join(out_dir, "summaries", "train")
-        train_summary_writer = tf.train.SummaryWriter(train_summary_dir, sess.graph)
+        #train_summary_dir = os.path.join(out_dir, "summaries", "train")
+        #train_summary_writer = tf.train.SummaryWriter(train_summary_dir, sess.graph)
 
         # Dev summaries
         dev_summary_op = tf.merge_summary([loss_summary, acc_summary])
@@ -167,9 +168,10 @@ with tf.Graph().as_default():
             _, step, summaries, loss, accuracy = sess.run(
                 [train_op, global_step, train_summary_op, cnn.loss, cnn.accuracy],
                 feed_dict)
-            time_str = datetime.datetime.now().isoformat()
-            print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
-            train_summary_writer.add_summary(summaries, step)
+            #time_str = datetime.datetime.now().isoformat()
+            #if step % 20 == 0:
+            #    print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
+            #train_summary_writer.add_summary(summaries, step)
 
         def dev_step(x_batch, y_batch, writer=None):
             """
@@ -185,8 +187,8 @@ with tf.Graph().as_default():
                 feed_dict)
             time_str = datetime.datetime.now().isoformat()
             print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
-            if writer:
-                writer.add_summary(summaries, step)
+            #if writer:
+            #    writer.add_summary(summaries, step)
 
         # Generate batches
         batches = data_helpers.batch_iter(
@@ -197,9 +199,10 @@ with tf.Graph().as_default():
             train_step(x_batch, y_batch)
             current_step = tf.train.global_step(sess, global_step)
             if current_step % FLAGS.evaluate_every == 0:
-                print("\nEvaluation:")
+                #print("\nEvaluation:")
+                dev_step(x_train, y_train, writer=dev_summary_writer)
                 dev_step(x_dev, y_dev, writer=dev_summary_writer)
-                print("")
-            if current_step % FLAGS.checkpoint_every == 0:
-                path = saver.save(sess, checkpoint_prefix, global_step=current_step)
-                print("Saved model checkpoint to {}\n".format(path))
+                #print("")
+            #if current_step % FLAGS.checkpoint_every == 0:
+            #    path = saver.save(sess, checkpoint_prefix, global_step=current_step)
+            #    print("Saved model checkpoint to {}\n".format(path))
