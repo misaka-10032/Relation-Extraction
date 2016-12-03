@@ -19,15 +19,15 @@ tf.flags.DEFINE_string("data_file", "../data/instances.bin", "Data source for th
 
 # Model Hyperparameters
 tf.flags.DEFINE_integer("embedding_dim", 50, "Dimensionality of character embedding (default: 50)")
-tf.flags.DEFINE_string("filter_sizes", "3", "Comma-separated filter sizes (default: '3,4,5')")
-# tf.flags.DEFINE_string("filter_sizes", "2,3,4,5", "Comma-separated filter sizes (default: '3,4,5')")
-tf.flags.DEFINE_integer("num_filters", 50, "Number of filters per filter size (default: 128)")
-tf.flags.DEFINE_float("dropout_keep_prob", 0.5, "Dropout keep probability (default: 0.5)")
-tf.flags.DEFINE_float("l2_reg_lambda", 0.01, "L2 regularizaion lambda (default: 0.0)")
+#tf.flags.DEFINE_string("filter_sizes", "3", "Comma-separated filter sizes (default: '3,4,5')")
+tf.flags.DEFINE_string("filter_sizes", "2,3,4,5", "Comma-separated filter sizes (default: '3,4,5')")
+tf.flags.DEFINE_integer("num_filters", 100, "Number of filters per filter size (default: 128)")
+tf.flags.DEFINE_float("dropout_keep_prob", 0.8, "Dropout keep probability (default: 0.5)")
+tf.flags.DEFINE_float("l2_reg_lambda", 0.0, "L2 regularizaion lambda (default: 0.0)")
 
 # Training parameters
 tf.flags.DEFINE_integer("batch_size", 100, "Batch Size (default: 64)")
-tf.flags.DEFINE_integer("num_epochs", 50, "Number of training epochs (default: 200)")
+tf.flags.DEFINE_integer("num_epochs", 100, "Number of training epochs (default: 200)")
 tf.flags.DEFINE_integer("evaluate_every", 60, "Evaluate model on dev set after this many steps (default: 100)")
 tf.flags.DEFINE_integer("checkpoint_every", 60, "Save model after this many steps (default: 100)")
 # Misc Parameters
@@ -174,20 +174,32 @@ with tf.Graph().as_default():
             #    print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
             #train_summary_writer.add_summary(summaries, step)
 
-        def dev_step(x_batch, y_batch, writer=None):
+        def dev_step(x_all, y_all, writer=None):
             """
             Evaluates model on a dev set
             """
-            feed_dict = {
-              cnn.input_x: x_batch,
-              cnn.input_y: y_batch,
-              cnn.dropout_keep_prob: 1.0
-            }
-            step, summaries, loss, accuracy = sess.run(
-                [global_step, dev_summary_op, cnn.loss, cnn.accuracy],
-                feed_dict)
+            all_loss, all_acc = 0.0, 0.0
+            num_batches = len(x_all) / FLAGS.batch_size
+            for i in range(num_batches):
+                start_index = i * FLAGS.batch_size
+                end_index = min((i + 1) * FLAGS.batch_size, len(x_all))
+                x_batch = x_all[start_index : end_index]
+                y_batch = y_all[start_index : end_index]
+                feed_dict = {
+                  cnn.input_x: x_batch,
+                  cnn.input_y: y_batch,
+                  cnn.dropout_keep_prob: 1.0
+                }
+                step, summaries, loss, accuracy = sess.run(
+                    [global_step, dev_summary_op, cnn.loss, cnn.accuracy], feed_dict)
+                all_loss += loss
+                all_acc += accuracy
+
+            all_loss /= num_batches
+            all_acc /= num_batches
             time_str = datetime.datetime.now().isoformat()
-            print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
+            print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, all_loss, all_acc))
+
             #if writer:
             #    writer.add_summary(summaries, step)
 
@@ -202,8 +214,8 @@ with tf.Graph().as_default():
             if current_step % FLAGS.evaluate_every == 0:
                 #print("\nEvaluation:")
 
-                dev_step(x_train[:100], y_train[:100], writer=dev_summary_writer)
-                dev_step(x_dev[:100], y_dev[:100], writer=dev_summary_writer)
+                dev_step(x_train, y_train, writer=dev_summary_writer)
+                dev_step(x_dev, y_dev, writer=dev_summary_writer)
 
                 #print("")
             #if current_step % FLAGS.checkpoint_every == 0:
