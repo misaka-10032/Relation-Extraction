@@ -28,7 +28,7 @@ class TextCNN(object):
             #     tf.random_uniform([vocab_size, embedding_size], -1.0, 1.0),
             #     name="W")
 
-            id2vec = load_id2vec("data/id2vec.bin")
+            id2vec = load_id2vec("../data/id2vec.bin")
             od = [item[1] for item in sorted(id2vec.items())]
             od.insert(0,[0]*50)
             id2vec1 = np.array(od, dtype=np.float32)

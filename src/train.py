@@ -15,10 +15,7 @@ from rio import load_data,load_id2vec
 
 # Data loading params
 tf.flags.DEFINE_float("dev_sample_percentage", .25, "Percentage of the training data to use for validation")
-# tf.flags.DEFINE_string("positive_data_file", "./data/rt-polaritydata/rt-polarity.pos", "Data source for the positive data.")
-# tf.flags.DEFINE_string("negative_data_file", "./data/rt-polaritydata/rt-polarity.neg", "Data source for the positive data.")
-
-tf.flags.DEFINE_string("data_file", "data/instances.bin", "Data source for the data.")
+tf.flags.DEFINE_string("data_file", "../data/instances.bin", "Data source for the data.")
 
 # Model Hyperparameters
 tf.flags.DEFINE_integer("embedding_dim", 50, "Dimensionality of character embedding (default: 50)")
@@ -59,7 +56,7 @@ print("Loading data...")
 # vocab_processor = learn.preprocessing.VocabularyProcessor(max_document_length)
 # x = np.array(list(vocab_processor.fit_transform(x_text)))
 
-instances = load_data("data/instances.bin")
+instances = load_data("../data/instances.bin")
 x = [item[0] for item in instances[:8000]]
 max_len = max([len(item) for item in x])
 x = [list(item) + [0]*(max_len - len(item)) for item in x]
@@ -71,7 +68,7 @@ n_values = np.max(y) + 1
 y = np.eye(n_values)[y]
 
 # instances = load_data("../data/instances.bin")
-# id2vec = load_id2vec("data/id2vec.bin")
+# id2vec = load_id2vec("../data/id2vec.bin")
 vocabulary_size = 22132
 
 

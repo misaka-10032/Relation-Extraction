@@ -22,6 +22,9 @@ def load_id2vec(file_path):
 
 if __name__ == "__main__":
     instances = load_data("../data/instances.bin")
+    print instances[0]
+    print instances[1]
+    print instances[2]
     id2vec = load_id2vec("../data/id2vec.bin")
     label_set = set()
     print instances[:5]
