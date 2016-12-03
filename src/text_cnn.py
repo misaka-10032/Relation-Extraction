@@ -10,12 +10,13 @@ class TextCNN(object):
     Uses an embedding layer, followed by a convolutional, max-pooling and softmax layer.
     """
     def __init__(
-      self, sequence_length, num_classes, vocab_size,
+      self, B, sequence_length, num_classes, vocab_size,
       embedding_size, filter_sizes, num_filters, l2_reg_lambda=0.0):
 
         # Placeholders for input, output and dropout
-        self.input_x = tf.placeholder(tf.int32, [None, sequence_length], name="input_x")
-        self.input_y = tf.placeholder(tf.float32, [None, num_classes], name="input_y")
+        self.B = B
+        self.input_x = tf.placeholder(tf.int32, [B, sequence_length], name="input_x")
+        self.input_y = tf.placeholder(tf.float32, [B, num_classes], name="input_y")
         self.dropout_keep_prob = tf.placeholder(tf.float32, name="dropout_keep_prob")
 
         # Keeping track of l2 regularization loss (optional)
@@ -42,13 +43,12 @@ class TextCNN(object):
                 tf.convert_to_tensor(id2vec1, dtype=tf.float32),
                 name="W")
 
-
-
             self.embedded_chars = tf.nn.embedding_lookup(W, self.input_x)
             self.embedded_chars_expanded = tf.expand_dims(self.embedded_chars, -1)
 
         # Create a convolution + maxpool layer for each filter size
-        pooled_outputs = []
+        #pooled_outputs = []
+        c_outputs = []
         for i, filter_size in enumerate(filter_sizes):
             with tf.name_scope("conv-maxpool-%s" % filter_size):
                 # Convolution Layer
@@ -62,24 +62,59 @@ class TextCNN(object):
                     padding="VALID",
                     name="conv")
                 # Apply nonlinearity
+                # (B, n-k+1, 1, m)
                 h = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu")
-                # Maxpooling over the outputs
-                pooled = tf.nn.max_pool(
-                    h,
-                    ksize=[1, sequence_length - filter_size + 1, 1, 1],
-                    strides=[1, 1, 1, 1],
-                    padding='VALID',
-                    name="pool")
-                pooled_outputs.append(pooled)
+                # (B, n-k+1, m)
+                h = tf.squeeze(h)
+                # (B*(n-k+1), m)
+                _, n_k_1, _ = h.get_shape()
+                n_k_1 = n_k_1.value
+                h = tf.reshape(h, [self.B*n_k_1, num_filters])
+
+                # (m, 1)
+                w1 = tf.Variable(tf.truncated_normal([num_filters, 1], stddev=0.1), name="w1")
+                # (B*(n-k+1),)
+                hw1 = tf.squeeze(tf.matmul(h, w1))
+                # (B, n-k+1)
+                hw1 = tf.reshape(hw1, [self.B, n_k_1])
+                e = tf.tanh(hw1, "e")
+                # (B, n-k+1)
+                alpha = tf.nn.softmax(e, name="alpha")
+                # (B, n-k+1, 1)
+                alpha = tf.reshape(alpha, [self.B, n_k_1, 1], name="alpha")
+
+                # (B, n-k+1, m)
+                h = tf.reshape(h, [self.B, n_k_1, num_filters])
+                # (B, m, n-k+1)
+                v = tf.transpose(h, [0, 2, 1], name="v")
+
+                # attention
+                # (B, m, 1)
+                c = tf.batch_matmul(v, alpha, name="c")
+                # (B, m)
+                c = tf.squeeze(c, name="c")
+
+                c_outputs.append(c)
+
+                ## Maxpooling over the outputs
+                #pooled = tf.nn.max_pool(
+                #    h,
+                #    ksize=[1, sequence_length - filter_size + 1, 1, 1],
+                #    strides=[1, 1, 1, 1],
+                #    padding='VALID',
+                #    name="pool")
+                #pooled_outputs.append(pooled)
 
         # Combine all the pooled features
         num_filters_total = num_filters * len(filter_sizes)
-        self.h_pool = tf.concat(3, pooled_outputs)
-        self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
+        # self.h_pool = tf.concat(3, pooled_outputs)
+        # self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
+        self.c_outputs = tf.concat(1, c_outputs)
+        self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
 
         # Add dropout
         with tf.name_scope("dropout"):
-            self.h_drop = tf.nn.dropout(self.h_pool_flat, self.dropout_keep_prob)
+            self.h_drop = tf.nn.dropout(self.c_outputs_flat, self.dropout_keep_prob)
 
         # Final (unnormalized) scores and predictions
         with tf.name_scope("output"):

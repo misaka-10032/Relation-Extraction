@@ -19,15 +19,15 @@ tf.flags.DEFINE_string("data_file", "../data/instances.bin", "Data source for th
 
 # Model Hyperparameters
 tf.flags.DEFINE_integer("embedding_dim", 50, "Dimensionality of character embedding (default: 50)")
-#tf.flags.DEFINE_string("filter_sizes", "3,4,5", "Comma-separated filter sizes (default: '3,4,5')")
-tf.flags.DEFINE_string("filter_sizes", "2,3,4,5", "Comma-separated filter sizes (default: '3,4,5')")
+tf.flags.DEFINE_string("filter_sizes", "3", "Comma-separated filter sizes (default: '3,4,5')")
+# tf.flags.DEFINE_string("filter_sizes", "2,3,4,5", "Comma-separated filter sizes (default: '3,4,5')")
 tf.flags.DEFINE_integer("num_filters", 50, "Number of filters per filter size (default: 128)")
 tf.flags.DEFINE_float("dropout_keep_prob", 0.5, "Dropout keep probability (default: 0.5)")
 tf.flags.DEFINE_float("l2_reg_lambda", 0.01, "L2 regularizaion lambda (default: 0.0)")
 
 # Training parameters
 tf.flags.DEFINE_integer("batch_size", 100, "Batch Size (default: 64)")
-tf.flags.DEFINE_integer("num_epochs", 100, "Number of training epochs (default: 200)")
+tf.flags.DEFINE_integer("num_epochs", 50, "Number of training epochs (default: 200)")
 tf.flags.DEFINE_integer("evaluate_every", 60, "Evaluate model on dev set after this many steps (default: 100)")
 tf.flags.DEFINE_integer("checkpoint_every", 60, "Save model after this many steps (default: 100)")
 # Misc Parameters
@@ -56,13 +56,16 @@ print("Loading data...")
 # vocab_processor = learn.preprocessing.VocabularyProcessor(max_document_length)
 # x = np.array(list(vocab_processor.fit_transform(x_text)))
 
+sz = 8000
+# sz = 200
+
 instances = load_data("../data/instances.bin")
-x = [item[0] for item in instances[:8000]]
+x = [item[0] for item in instances[:sz]]
 max_len = max([len(item) for item in x])
 x = [list(item) + [0]*(max_len - len(item)) for item in x]
 x = np.array(x)
 
-y = [item[2] for item in instances[:8000]]
+y = [item[2] for item in instances[:sz]]
 # values = [1, 0, 3]
 n_values = np.max(y) + 1
 y = np.eye(n_values)[y]
@@ -97,6 +100,7 @@ with tf.Graph().as_default():
     sess = tf.Session(config=session_conf)
     with sess.as_default():
         cnn = TextCNN(
+            B=FLAGS.batch_size,
             sequence_length=x_train.shape[1],
             num_classes=y_train.shape[1],
             vocab_size=vocabulary_size,
@@ -197,8 +201,10 @@ with tf.Graph().as_default():
             current_step = tf.train.global_step(sess, global_step)
             if current_step % FLAGS.evaluate_every == 0:
                 #print("\nEvaluation:")
-                dev_step(x_train, y_train, writer=dev_summary_writer)
-                dev_step(x_dev, y_dev, writer=dev_summary_writer)
+
+                dev_step(x_train[:100], y_train[:100], writer=dev_summary_writer)
+                dev_step(x_dev[:100], y_dev[:100], writer=dev_summary_writer)
+
                 #print("")
             #if current_step % FLAGS.checkpoint_every == 0:
             #    path = saver.save(sess, checkpoint_prefix, global_step=current_step)
