@@ -36,6 +36,9 @@ def seperate_words_and_symbols(token):
     return tokens
 
 def get_token_list(sentence):
+    '''
+    combine entity tokens into one word, concated with '_'
+    '''
     e1_start_pos, e2_start_pos = -1, -1
     e1_end_pos, e2_end_pos = -1, -1
     t_list = list()
