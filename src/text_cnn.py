@@ -71,13 +71,22 @@ class TextCNN(object):
                 n_k_1 = n_k_1.value
                 h = tf.reshape(h, [self.B*n_k_1, num_filters])
 
-                # (m, 1)
-                w1 = tf.Variable(tf.truncated_normal([num_filters, 1], stddev=0.1), name="w1")
-                # (B*(n-k+1),)
+                # (m, m)
+                w1 = tf.Variable(tf.truncated_normal([num_filters, num_filters], stddev=0.1), name="w1")
+                b1 = tf.Variable(tf.constant(0.1, shape=[num_filters]), name="b1")
+                # (B*(n-k+1), m)
                 hw1 = tf.squeeze(tf.matmul(h, w1))
+                hw1 = tf.nn.bias_add(hw1, b1, name='hw1_b1')
+                # (B*(n-k+1), m)
+                tanh_hw1 = tf.tanh(hw1, 'tanh_hw1')
+
+                # (m, 1)
+                v1 = tf.Variable(tf.truncated_normal([num_filters, 1], stddev=0.1), name='v1')
+                # (B*(n-k+1), 1)
+                e = tf.matmul(tanh_hw1, v1, name='e')
                 # (B, n-k+1)
-                hw1 = tf.reshape(hw1, [self.B, n_k_1])
-                e = tf.tanh(hw1, "e")
+                e = tf.reshape(e, [self.B, n_k_1], name='e')
+
                 # (B, n-k+1)
                 alpha = tf.nn.softmax(e, name="alpha")
                 # (B, n-k+1, 1)
@@ -86,11 +95,11 @@ class TextCNN(object):
                 # (B, n-k+1, m)
                 h = tf.reshape(h, [self.B, n_k_1, num_filters])
                 # (B, m, n-k+1)
-                v = tf.transpose(h, [0, 2, 1], name="v")
+                ht = tf.transpose(h, [0, 2, 1], name="v")
 
                 # attention
                 # (B, m, 1)
-                c = tf.batch_matmul(v, alpha, name="c")
+                c = tf.batch_matmul(ht, alpha, name="c")
                 # (B, m)
                 c = tf.squeeze(c, name="c")
 
