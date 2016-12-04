@@ -59,21 +59,27 @@ print("Loading data...")
 sz = 8000
 # sz = 200
 
+vocabulary_size = 22132
+marker1 = vocabulary_size
+marker2 = vocabulary_size + 1
+padding = vocabulary_size + 2
+
 instances = load_data("../data/instances.bin")
 x = [item[0] for item in instances[:sz]]
 max_len = max([len(item) for item in x])
-x = [list(item) + [0]*(max_len - len(item)) for item in x]
+x = [list(item) + [padding]*(max_len - len(item)) for item in x]
 x = np.array(x)
+
+# replace entities
+for i, instance in enumerate(instances[:sz]):
+    p1, p2 = instance[1]
+    x[i][p1] = marker1
+    x[i][p2] = marker2
 
 y = [item[2] for item in instances[:sz]]
 # values = [1, 0, 3]
 n_values = np.max(y) + 1
 y = np.eye(n_values)[y]
-
-# instances = load_data("../data/instances.bin")
-# id2vec = load_id2vec("../data/id2vec.bin")
-vocabulary_size = 22132
-
 
 # Randomly shuffle data
 #np.random.seed(10)

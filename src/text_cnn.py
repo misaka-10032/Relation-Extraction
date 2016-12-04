@@ -30,6 +30,10 @@ class TextCNN(object):
             #     name="W")
 
             id2vec = load_id2vec("../data/id2vec.bin")
+
+            # add marker
+            # replace two entities with two markers
+
             od = [item[1] for item in sorted(id2vec.items())]
             od.insert(0,[0]*50)
             id2vec1 = np.array(od, dtype=np.float32)
@@ -39,9 +43,13 @@ class TextCNN(object):
             # temp1 = tf.get_variable('embedding',initializer = init)
             # tf.Variable(tf.convert_to_tensor(np.eye(784), dtype=tf.float32))
             # temp1 = tf.Variable(initial_value=id2vec1)
-            W = tf.Variable(
+            _W = tf.Variable(
                 tf.convert_to_tensor(id2vec1, dtype=tf.float32),
-                name="W")
+                name="_W")
+            marker1 = tf.Variable(np.zeros(id2vec1.shape[1], dtype=float), trainable=False)
+            marker2 = tf.Variable(np.zeros(id2vec1.shape[1], dtype=float), trainable=False)
+            padding = tf.Variable(np.zeros(id2vec1.shape[1], dtype=float), trainable=False)
+            W = tf.concat(0, [_W, marker1, marker2, padding])
 
             self.embedded_chars = tf.nn.embedding_lookup(W, self.input_x)
             self.embedded_chars_expanded = tf.expand_dims(self.embedded_chars, -1)
