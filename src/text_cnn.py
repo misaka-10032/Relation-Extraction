@@ -46,10 +46,10 @@ class TextCNN(object):
             _W = tf.Variable(
                 tf.convert_to_tensor(id2vec1, dtype=tf.float32),
                 name="_W")
-            marker1 = tf.Variable(np.zeros(id2vec1.shape[1], dtype=float), trainable=False)
-            marker2 = tf.Variable(np.zeros(id2vec1.shape[1], dtype=float), trainable=False)
-            padding = tf.Variable(np.zeros(id2vec1.shape[1], dtype=float), trainable=False)
-            W = tf.concat(0, [_W, marker1, marker2, padding])
+            marker1 = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=False)
+            marker2 = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=False)
+            padding = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=False)
+            W = tf.concat(0, [_W, marker1, marker2, padding], name='W')
 
             self.embedded_chars = tf.nn.embedding_lookup(W, self.input_x)
             self.embedded_chars_expanded = tf.expand_dims(self.embedded_chars, -1)

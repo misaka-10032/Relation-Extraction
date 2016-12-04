@@ -204,6 +204,14 @@ with tf.Graph().as_default():
             all_loss /= num_batches
             all_acc /= num_batches
             time_str = datetime.datetime.now().isoformat()
+
+            # TODO: get W
+            # with tf.variable_scope('embedding', reuse=True):
+            #     W = tf.get_variable('W', [vocabulary_size+3, FLAGS.embedding_dim])
+            #     print
+            #     print 'W:', W[-3:, :10]
+            #     print
+
             print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, all_loss, all_acc))
 
             #if writer:
