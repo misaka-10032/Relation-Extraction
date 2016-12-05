@@ -12,7 +12,7 @@ class TextCNN(object):
     Uses an embedding layer, followed by a convolutional, max-pooling and softmax layer.
     """
     def __init__(
-      self, B, sequence_length, sequence_length1, sequence_length2, sequence_length3,
+      self, B, sequence_length, sequence_length1, sequence_length2, sequence_length3, sequence_length4,
       num_classes, vocab_size,
       embedding_size, filter_sizes, num_filters, l2_reg_lambda=0.0):
 
@@ -25,9 +25,10 @@ class TextCNN(object):
         self.dropout_keep_prob = tf.placeholder(tf.float32, name="dropout_keep_prob")
 
         # 3 seg lstm
-        self.input_x1 = tf.placeholder(tf.int32, [B, sequence_length1], name="input_x1")
-        self.input_x2 = tf.placeholder(tf.int32, [B, sequence_length2], name="input_x2")
-        self.input_x3 = tf.placeholder(tf.int32, [B, sequence_length3], name="input_x3")
+        self.input_seg1 = tf.placeholder(tf.int32, [B, sequence_length1], name="input_seg1")
+        self.input_seg2 = tf.placeholder(tf.int32, [B, sequence_length2], name="input_seg2")
+        self.input_seg3 = tf.placeholder(tf.int32, [B, sequence_length3], name="input_seg3")
+        self.input_seg4 = tf.placeholder(tf.int32, [B, sequence_length4], name="input_seg4")
 
         # Keeping track of l2 regularization loss (optional)
         l2_loss = tf.constant(0.0)
@@ -64,12 +65,14 @@ class TextCNN(object):
             self.embedded_chars = tf.nn.embedding_lookup(W, self.input_x)
             self.embedded_chars_expanded = tf.expand_dims(self.embedded_chars, -1)
 
-            self.x1 = tf.nn.embedding_lookup(W, self.input_x1)
-            self.x2 = tf.nn.embedding_lookup(W, self.input_x2)
-            self.x3 = tf.nn.embedding_lookup(W, self.input_x3)
+            self.x1 = tf.nn.embedding_lookup(W, self.input_seg1)
+            self.x2 = tf.nn.embedding_lookup(W, self.input_seg2)
+            self.x3 = tf.nn.embedding_lookup(W, self.input_seg3)
+            self.x4 = tf.nn.embedding_lookup(W, self.input_seg4)
 
         # Create a convolution + maxpool layer for each filter size
         #pooled_outputs = []
+        """ CNN is already working lol
         c_outputs = []
         for i, filter_size in enumerate(filter_sizes):
             with tf.name_scope("conv-maxpool-%s" % filter_size):
@@ -142,32 +145,32 @@ class TextCNN(object):
         # self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
         # self.c_outputs = tf.concat(1, c_outputs)
         # self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
+        """
 
         ######## lstm ########
-        n_lstm_hidden = 30
+        n_lstm_hidden = 100
 
-        def bilstm(scope, input_x, n_hidden=n_lstm_hidden):
+        def mylstm(scope, input_x, n_hidden=n_lstm_hidden):
             # returns output, state
             _, n_steps, n_input = input_x.get_shape()
             n_steps, n_input = n_steps.value, n_input.value
             x = tf.transpose(input_x, [1, 0, 2])
             x = tf.reshape(x, [-1, n_input])
             x = tf.split(0, n_steps, x)
-            lstm_fw_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
-            lstm_bw_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
-            output, _, _ = rnn.bidirectional_rnn(lstm_fw_cell, lstm_bw_cell, x,
-                                                 dtype=tf.float32, scope=scope)
+            lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
+            output, _ = rnn.rnn(lstm_cell, x, dtype=tf.float32, scope=scope)
             return output[-1]
 
         lstm_outputs = []
-        lstm_outputs.append(bilstm('lstm1', self.x1))
-        lstm_outputs.append(bilstm('lstm2', self.x2))
-        lstm_outputs.append(bilstm('lstm3', self.x3))
+        lstm_outputs.append(mylstm('lstm1', self.x1))
+        lstm_outputs.append(mylstm('lstm4', self.x4))
+        lstm_outputs.append(mylstm('lstm2', self.x2))
+        lstm_outputs.append(mylstm('lstm3', self.x3))
 
         # concat
         self.lstm_outputs = tf.concat(1, lstm_outputs)
-        self.c_outputs = tf.concat(1, c_outputs)
-        self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
+        #self.c_outputs = tf.concat(1, c_outputs)
+        #self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
 
         # Add dropout
         with tf.name_scope("dropout"):
@@ -186,7 +189,7 @@ class TextCNN(object):
             # lstm
             W = tf.get_variable(
                 "W",
-                shape=[n_lstm_hidden*6, num_classes],
+                shape=[n_lstm_hidden*4, num_classes],
                 initializer=tf.contrib.layers.xavier_initializer())
             b = tf.Variable(tf.constant(0.1, shape=[num_classes]), name="b")
 

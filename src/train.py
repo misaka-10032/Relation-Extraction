@@ -76,34 +76,32 @@ for i, instance in enumerate(instances[:sz]):
     x[i][p1] = marker1
     x[i][p2] = marker2
 
-x1, x2, x3 = [], [], []
-l1, l2, l3 = 0, 0, 0
 # segment sentences
+seg1, seg2, seg3, seg4 = [], [], [], []
 for i, instance in enumerate(instances[:sz]):
     sent = list(instance[0])
     p1, p2 = instance[1]
-    x1.append(sent[:p1+1])
-    x2.append(sent[p1:p2+1])
-    x3.append(sent[p2:])
-    l1 = max(l1, p1+1)
-    l2 = max(l2, p2+1-p1)
-    l3 = max(l3, len(sent)-p2)
-for i in xrange(sz):
-    x1[i] = x1[i] + [padding] * (l1-len(x1[i]))
-    x2[i] = x2[i] + [padding] * (l2-len(x2[i]))
-    x3[i] = x3[i] + [padding] * (l3-len(x3[i]))
-x1 = np.array(x1)
-x2 = np.array(x2)
-x3 = np.array(x3)
-# TODO: tricky
+    seg1.append(sent[:p1 + 1])
+    seg2.append(sent[:p2 + 1])
+    seg3.append(list(reversed(sent[p2:])))
+    seg4.append(list(reversed(sent[p1:])))
 
-# hard-code truncated length
-l1 = 12
-l2 = 9
-l3 = 18
-x1 = x1[:, :l1]
-x2 = x2[:, :l2]
-x3 = x3[:, :l3]
+l1, l2, l3, l4 = 10, 15, 15, 20
+def norm_len(seg, length):
+    if len(seg) > length:
+        seg = seg[:length]
+    else:
+        seg += [padding] * (length - len(seg))
+    return seg
+for i in xrange(sz):
+    seg1[i] = norm_len(seg1[i], l1)
+    seg2[i] = norm_len(seg2[i], l2)
+    seg3[i] = norm_len(seg3[i], l3)
+    seg4[i] = norm_len(seg4[i], l4)
+seg1 = np.array(seg1)
+seg2 = np.array(seg2)
+seg3 = np.array(seg3)
+seg4 = np.array(seg4)
 
 y = [item[2] for item in instances[:sz]]
 # values = [1, 0, 3]
@@ -116,18 +114,20 @@ shuffle_indices = np.random.permutation(np.arange(len(y)))
 x_shuffled = x[shuffle_indices]
 y_shuffled = y[shuffle_indices]
 
-x1_shuffled = x1[shuffle_indices]
-x2_shuffled = x2[shuffle_indices]
-x3_shuffled = x3[shuffle_indices]
+seg1_shuffled = seg1[shuffle_indices]
+seg2_shuffled = seg2[shuffle_indices]
+seg3_shuffled = seg3[shuffle_indices]
+seg4_shuffled = seg4[shuffle_indices]
 
 # Split train/test set
 # TODO: This is very crude, should use cross-validation
 dev_sample_index = -1 * int(FLAGS.dev_sample_percentage * float(len(y)))
 x_train, x_dev = x_shuffled[:dev_sample_index], x_shuffled[dev_sample_index:]
 y_train, y_dev = y_shuffled[:dev_sample_index], y_shuffled[dev_sample_index:]
-x1_train, x1_dev = x1_shuffled[:dev_sample_index], x1_shuffled[dev_sample_index:]
-x2_train, x2_dev = x2_shuffled[:dev_sample_index], x2_shuffled[dev_sample_index:]
-x3_train, x3_dev = x3_shuffled[:dev_sample_index], x3_shuffled[dev_sample_index:]
+seg1_train, seg1_dev = seg1_shuffled[:dev_sample_index], seg1_shuffled[dev_sample_index:]
+seg2_train, seg2_dev = seg2_shuffled[:dev_sample_index], seg2_shuffled[dev_sample_index:]
+seg3_train, seg3_dev = seg3_shuffled[:dev_sample_index], seg3_shuffled[dev_sample_index:]
+seg4_train, seg4_dev = seg4_shuffled[:dev_sample_index], seg4_shuffled[dev_sample_index:]
 
 print("Vocabulary Size: {:d}".format(vocabulary_size))
 print("Train/Dev split: {:d}/{:d}".format(len(y_train), len(y_dev)))
@@ -148,6 +148,7 @@ with tf.Graph().as_default():
             sequence_length1=l1,
             sequence_length2=l2,
             sequence_length3=l3,
+            sequence_length4=l4,
             num_classes=y_train.shape[1],
             vocab_size=vocabulary_size,
             embedding_size=FLAGS.embedding_dim,
@@ -203,16 +204,17 @@ with tf.Graph().as_default():
         # Initialize all variables
         sess.run(tf.initialize_all_variables())
 
-        def train_step(x_batch, y_batch, x1_batch, x2_batch, x3_batch):
+        def train_step(x_batch, y_batch, seg1_batch, seg2_batch, seg3_batch, seg4_batch):
             """
             A single training step
             """
             feed_dict = {
               cnn.input_x: x_batch,
               cnn.input_y: y_batch,
-              cnn.input_x1: x1_batch,
-              cnn.input_x2: x2_batch,
-              cnn.input_x3: x3_batch,
+              cnn.input_seg1: seg1_batch,
+              cnn.input_seg2: seg2_batch,
+              cnn.input_seg3: seg3_batch,
+              cnn.input_seg4: seg4_batch,
               cnn.dropout_keep_prob: FLAGS.dropout_keep_prob
             }
             _, step, summaries, loss, accuracy = sess.run(
@@ -223,7 +225,7 @@ with tf.Graph().as_default():
             #    print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
             #train_summary_writer.add_summary(summaries, step)
 
-        def dev_step(x_all, y_all, x1_all, x2_all, x3_all, writer=None):
+        def dev_step(x_all, y_all, seg1_all, seg2_all, seg3_all, seg4_all, writer=None):
             """
             Evaluates model on a dev set
             """
@@ -232,17 +234,19 @@ with tf.Graph().as_default():
             for i in range(num_batches):
                 start_index = i * FLAGS.batch_size
                 end_index = min((i + 1) * FLAGS.batch_size, len(x_all))
-                x_batch = x_all[start_index : end_index]
-                y_batch = y_all[start_index : end_index]
-                x1_batch = x1_all[start_index:end_index]
-                x2_batch = x2_all[start_index:end_index]
-                x3_batch = x3_all[start_index:end_index]
+                x_batch = x_all[start_index:end_index]
+                y_batch = y_all[start_index:end_index]
+                seg1_batch = seg1_all[start_index:end_index]
+                seg2_batch = seg2_all[start_index:end_index]
+                seg3_batch = seg3_all[start_index:end_index]
+                seg4_batch = seg4_all[start_index:end_index]
                 feed_dict = {
                   cnn.input_x: x_batch,
                   cnn.input_y: y_batch,
-                  cnn.input_x1: x1_batch,
-                  cnn.input_x2: x2_batch,
-                  cnn.input_x3: x3_batch,
+                  cnn.input_seg1: seg1_batch,
+                  cnn.input_seg2: seg2_batch,
+                  cnn.input_seg3: seg3_batch,
+                  cnn.input_seg4: seg4_batch,
                   cnn.dropout_keep_prob: 1.0
                 }
                 step, summaries, loss, accuracy = sess.run(
@@ -268,20 +272,16 @@ with tf.Graph().as_default():
 
         # Generate batches
         batches = data_helpers.batch_iter(
-            list(zip(x_train, y_train, x1_train, x2_train, x3_train)),
+            list(zip(x_train, y_train, seg1_train, seg2_train, seg3_train, seg4_train)),
             FLAGS.batch_size, FLAGS.num_epochs)
         # Training loop. For each batch...
         for batch in batches:
-            x_batch, y_batch, x1_batch, x2_batch, x3_batch = zip(*batch)
-            train_step(x_batch, y_batch, x1_batch, x2_batch, x3_batch)
+            x_batch, y_batch, x1_batch, x2_batch, x3_batch, x4_batch = zip(*batch)
+            train_step(x_batch, y_batch, x1_batch, x2_batch, x3_batch, x4_batch)
             current_step = tf.train.global_step(sess, global_step)
             if current_step % FLAGS.evaluate_every == 0:
-                #print("\nEvaluation:")
-
-                dev_step(x_train, y_train, x1_train, x2_train, x3_train, writer=dev_summary_writer)
-                dev_step(x_dev, y_dev, x1_train, x2_train, x3_train, writer=dev_summary_writer)
-
-                #print("")
+                dev_step(x_train, y_train, seg1_train, seg2_train, seg3_train, seg4_train, writer=dev_summary_writer)
+                dev_step(x_dev, y_dev, seg1_dev, seg2_dev, seg3_dev, seg4_dev, writer=dev_summary_writer)
             #if current_step % FLAGS.checkpoint_every == 0:
             #    path = saver.save(sess, checkpoint_prefix, global_step=current_step)
             #    print("Saved model checkpoint to {}\n".format(path))
