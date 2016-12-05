@@ -59,9 +59,12 @@ class TextCNN(object):
             _W = tf.Variable(
                 tf.convert_to_tensor(id2vec1, dtype=tf.float32),
                 name="_W")
-            marker1 = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=False)
-            marker2 = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=False)
-            padding = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=False)
+            #marker1 = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=False)
+            #marker2 = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=False)
+            #padding = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=False)
+            marker1 = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=True)
+            marker2 = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=True)
+            padding = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=True)
             W = tf.concat(0, [_W, marker1, marker2, padding], name='W')
 
             self.embedded_chars = tf.nn.embedding_lookup(W, self.input_x)
@@ -76,7 +79,7 @@ class TextCNN(object):
             self.e = tf.reshape(self.e, [B, -1])
 
         # Create a convolution + maxpool layer for each filter size
-        #pooled_outputs = []
+        pooled_outputs = []
         c_outputs = []
         for i, filter_size in enumerate(filter_sizes):
             with tf.name_scope("conv-maxpool-%s" % filter_size):
@@ -93,6 +96,19 @@ class TextCNN(object):
                 # Apply nonlinearity
                 # (B, n-k+1, 1, m)
                 h = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu")
+
+                """ Maxpooling over the outputs """
+                pooled = tf.nn.max_pool(
+                    h,
+                    ksize=[1, sequence_length - filter_size + 1, 1, 1],
+                    strides=[1, 1, 1, 1],
+                    padding='VALID',
+                    name="pool")
+
+                pooled_outputs.append(pooled)
+
+
+                """ attention
                 # (B, n-k+1, m)
                 h = tf.squeeze(h)
                 # (B*(n-k+1), m)
@@ -133,23 +149,19 @@ class TextCNN(object):
                 c = tf.squeeze(c, name="c")
 
                 c_outputs.append(c)
-
-                ## Maxpooling over the outputs
-                #pooled = tf.nn.max_pool(
-                #    h,
-                #    ksize=[1, sequence_length - filter_size + 1, 1, 1],
-                #    strides=[1, 1, 1, 1],
-                #    padding='VALID',
-                #    name="pool")
-                #pooled_outputs.append(pooled)
+                """
 
         # Combine all the pooled features
         num_filters_total = num_filters * len(filter_sizes)
-        self.c_outputs = tf.concat(1, c_outputs)
-        self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
+        self.h_pool = tf.concat(3, pooled_outputs)
+        self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
+
+        # attention
+        #self.c_outputs = tf.concat(1, c_outputs)
+        #self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
 
         ######## lstm ########
-        n_lstm_hidden = 100
+        n_lstm_hidden = 50
         def mylstm(scope, input_x, n_hidden=n_lstm_hidden):
             # returns output, state
             _, n_steps, n_input = input_x.get_shape()
@@ -172,8 +184,9 @@ class TextCNN(object):
 
         # Final forward
         e_shape = self.e.get_shape()[1].value
-        self.final_outputs = tf.concat(1, [self.lstm_outputs, self.c_outputs_flat, self.e])
-        final_weight_shape = (n_lstm_hidden * 4 + num_filters_total + e_shape, num_classes)
+        #self.final_outputs = tf.concat(1, [self.lstm_outputs, self.h_pool_flat, self.e])
+        self.final_outputs = tf.concat(1, [self.lstm_outputs, self.h_pool_flat])
+        final_weight_shape = (n_lstm_hidden * 4 + num_filters_total, num_classes)
         final_bias_shape = (num_classes,)
 
         # Add dropout
