@@ -30,6 +30,8 @@ class TextCNN(object):
         self.input_seg3 = tf.placeholder(tf.int32, [B, sequence_length3], name="input_seg3")
         self.input_seg4 = tf.placeholder(tf.int32, [B, sequence_length4], name="input_seg4")
 
+        self.entities = tf.placeholder(tf.int32, [B, 2], name="entities")
+
         # Keeping track of l2 regularization loss (optional)
         l2_loss = tf.constant(0.0)
 
@@ -69,6 +71,9 @@ class TextCNN(object):
             self.x2 = tf.nn.embedding_lookup(W, self.input_seg2)
             self.x3 = tf.nn.embedding_lookup(W, self.input_seg3)
             self.x4 = tf.nn.embedding_lookup(W, self.input_seg4)
+
+            self.e = tf.nn.embedding_lookup(W, self.entities)
+            self.e = tf.reshape(self.e, [B, -1])
 
         # Create a convolution + maxpool layer for each filter size
         #pooled_outputs = []
@@ -166,8 +171,9 @@ class TextCNN(object):
         self.lstm_outputs = tf.concat(1, lstm_outputs)
 
         # Final forward
-        self.final_outputs = tf.concat(1, [self.lstm_outputs, self.c_outputs_flat])
-        final_weight_shape = (n_lstm_hidden * 4 + num_filters_total, num_classes)
+        e_shape = self.e.get_shape()[1].value
+        self.final_outputs = tf.concat(1, [self.lstm_outputs, self.c_outputs_flat, self.e])
+        final_weight_shape = (n_lstm_hidden * 4 + num_filters_total + e_shape, num_classes)
         final_bias_shape = (num_classes,)
 
         # Add dropout
