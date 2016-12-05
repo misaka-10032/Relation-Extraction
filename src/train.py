@@ -70,23 +70,26 @@ max_len = max([len(item) for item in x])
 x = [list(item) + [padding]*(max_len - len(item)) for item in x]
 x = np.array(x)
 
-# replace entities
-for i, instance in enumerate(instances[:sz]):
-    p1, p2 = instance[1]
-    x[i][p1] = marker1
-    x[i][p2] = marker2
+# cnn add marker
+#for i, instance in enumerate(instances[:sz]):
+#    p1, p2 = instance[1]
+#    x[i][p1] = marker1
+#    x[i][p2] = marker2
 
 # segment sentences
 seg1, seg2, seg3, seg4 = [], [], [], []
 for i, instance in enumerate(instances[:sz]):
     sent = list(instance[0])
     p1, p2 = instance[1]
+    # lstm add marker
+    #sent[p1] = marker1
+    #sent[p2] = marker2
     seg1.append(sent[:p1 + 1])
     seg2.append(sent[:p2 + 1])
     seg3.append(list(reversed(sent[p2:])))
     seg4.append(list(reversed(sent[p1:])))
 
-l1, l2, l3, l4 = 10, 15, 15, 20
+l1, l2, l3, l4 = 15, 20, 20, 25
 def norm_len(seg, length):
     if len(seg) > length:
         seg = seg[:length]

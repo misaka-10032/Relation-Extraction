@@ -72,7 +72,6 @@ class TextCNN(object):
 
         # Create a convolution + maxpool layer for each filter size
         #pooled_outputs = []
-        """ CNN is already working lol
         c_outputs = []
         for i, filter_size in enumerate(filter_sizes):
             with tf.name_scope("conv-maxpool-%s" % filter_size):
@@ -141,15 +140,11 @@ class TextCNN(object):
 
         # Combine all the pooled features
         num_filters_total = num_filters * len(filter_sizes)
-        # self.h_pool = tf.concat(3, pooled_outputs)
-        # self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
-        # self.c_outputs = tf.concat(1, c_outputs)
-        # self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
-        """
+        self.c_outputs = tf.concat(1, c_outputs)
+        self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
 
         ######## lstm ########
         n_lstm_hidden = 100
-
         def mylstm(scope, input_x, n_hidden=n_lstm_hidden):
             # returns output, state
             _, n_steps, n_input = input_x.get_shape()
@@ -169,29 +164,23 @@ class TextCNN(object):
 
         # concat
         self.lstm_outputs = tf.concat(1, lstm_outputs)
-        #self.c_outputs = tf.concat(1, c_outputs)
-        #self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
+
+        # Final forward
+        self.final_outputs = tf.concat(1, [self.lstm_outputs, self.c_outputs_flat])
+        final_weight_shape = (n_lstm_hidden * 4 + num_filters_total, num_classes)
+        final_bias_shape = (num_classes,)
 
         # Add dropout
         with tf.name_scope("dropout"):
-            # self.h_drop = tf.nn.dropout(self.c_outputs_flat, self.dropout_keep_prob)
-            self.h_drop = tf.nn.dropout(self.lstm_outputs, self.dropout_keep_prob)
+            self.h_drop = tf.nn.dropout(self.final_outputs, self.dropout_keep_prob)
 
         # Final (unnormalized) scores and predictions
         with tf.name_scope("output"):
-            # cnn
-            # W = tf.get_variable(
-            #     "W",
-            #     shape=[num_filters_total, num_classes],
-            #     initializer=tf.contrib.layers.xavier_initializer())
-            # b = tf.Variable(tf.constant(0.1, shape=[num_classes]), name="b")
-
-            # lstm
             W = tf.get_variable(
                 "W",
-                shape=[n_lstm_hidden*4, num_classes],
+                shape=final_weight_shape,
                 initializer=tf.contrib.layers.xavier_initializer())
-            b = tf.Variable(tf.constant(0.1, shape=[num_classes]), name="b")
+            b = tf.Variable(tf.constant(0.1, shape=final_bias_shape), name="b")
 
             l2_loss += tf.nn.l2_loss(W)
             l2_loss += tf.nn.l2_loss(b)
