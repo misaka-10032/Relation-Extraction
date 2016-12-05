@@ -76,6 +76,35 @@ for i, instance in enumerate(instances[:sz]):
     x[i][p1] = marker1
     x[i][p2] = marker2
 
+x1, x2, x3 = [], [], []
+l1, l2, l3 = 0, 0, 0
+# segment sentences
+for i, instance in enumerate(instances[:sz]):
+    sent = list(instance[0])
+    p1, p2 = instance[1]
+    x1.append(sent[:p1+1])
+    x2.append(sent[p1:p2+1])
+    x3.append(sent[p2:])
+    l1 = max(l1, p1+1)
+    l2 = max(l2, p2+1-p1)
+    l3 = max(l3, len(sent)-p2)
+for i in xrange(sz):
+    x1[i] = x1[i] + [padding] * (l1-len(x1[i]))
+    x2[i] = x2[i] + [padding] * (l2-len(x2[i]))
+    x3[i] = x3[i] + [padding] * (l3-len(x3[i]))
+x1 = np.array(x1)
+x2 = np.array(x2)
+x3 = np.array(x3)
+# TODO: tricky
+
+# hard-code truncated length
+l1 = 12
+l2 = 9
+l3 = 18
+x1 = x1[:, :l1]
+x2 = x2[:, :l2]
+x3 = x3[:, :l3]
+
 y = [item[2] for item in instances[:sz]]
 # values = [1, 0, 3]
 n_values = np.max(y) + 1
@@ -87,11 +116,19 @@ shuffle_indices = np.random.permutation(np.arange(len(y)))
 x_shuffled = x[shuffle_indices]
 y_shuffled = y[shuffle_indices]
 
+x1_shuffled = x1[shuffle_indices]
+x2_shuffled = x2[shuffle_indices]
+x3_shuffled = x3[shuffle_indices]
+
 # Split train/test set
 # TODO: This is very crude, should use cross-validation
 dev_sample_index = -1 * int(FLAGS.dev_sample_percentage * float(len(y)))
 x_train, x_dev = x_shuffled[:dev_sample_index], x_shuffled[dev_sample_index:]
 y_train, y_dev = y_shuffled[:dev_sample_index], y_shuffled[dev_sample_index:]
+x1_train, x1_dev = x1_shuffled[:dev_sample_index], x1_shuffled[dev_sample_index:]
+x2_train, x2_dev = x2_shuffled[:dev_sample_index], x2_shuffled[dev_sample_index:]
+x3_train, x3_dev = x3_shuffled[:dev_sample_index], x3_shuffled[dev_sample_index:]
+
 print("Vocabulary Size: {:d}".format(vocabulary_size))
 print("Train/Dev split: {:d}/{:d}".format(len(y_train), len(y_dev)))
 
@@ -108,6 +145,9 @@ with tf.Graph().as_default():
         cnn = TextCNN(
             B=FLAGS.batch_size,
             sequence_length=x_train.shape[1],
+            sequence_length1=l1,
+            sequence_length2=l2,
+            sequence_length3=l3,
             num_classes=y_train.shape[1],
             vocab_size=vocabulary_size,
             embedding_size=FLAGS.embedding_dim,
@@ -163,13 +203,16 @@ with tf.Graph().as_default():
         # Initialize all variables
         sess.run(tf.initialize_all_variables())
 
-        def train_step(x_batch, y_batch):
+        def train_step(x_batch, y_batch, x1_batch, x2_batch, x3_batch):
             """
             A single training step
             """
             feed_dict = {
               cnn.input_x: x_batch,
               cnn.input_y: y_batch,
+              cnn.input_x1: x1_batch,
+              cnn.input_x2: x2_batch,
+              cnn.input_x3: x3_batch,
               cnn.dropout_keep_prob: FLAGS.dropout_keep_prob
             }
             _, step, summaries, loss, accuracy = sess.run(
@@ -180,7 +223,7 @@ with tf.Graph().as_default():
             #    print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
             #train_summary_writer.add_summary(summaries, step)
 
-        def dev_step(x_all, y_all, writer=None):
+        def dev_step(x_all, y_all, x1_all, x2_all, x3_all, writer=None):
             """
             Evaluates model on a dev set
             """
@@ -191,9 +234,15 @@ with tf.Graph().as_default():
                 end_index = min((i + 1) * FLAGS.batch_size, len(x_all))
                 x_batch = x_all[start_index : end_index]
                 y_batch = y_all[start_index : end_index]
+                x1_batch = x1_all[start_index:end_index]
+                x2_batch = x2_all[start_index:end_index]
+                x3_batch = x3_all[start_index:end_index]
                 feed_dict = {
                   cnn.input_x: x_batch,
                   cnn.input_y: y_batch,
+                  cnn.input_x1: x1_batch,
+                  cnn.input_x2: x2_batch,
+                  cnn.input_x3: x3_batch,
                   cnn.dropout_keep_prob: 1.0
                 }
                 step, summaries, loss, accuracy = sess.run(
@@ -219,17 +268,18 @@ with tf.Graph().as_default():
 
         # Generate batches
         batches = data_helpers.batch_iter(
-            list(zip(x_train, y_train)), FLAGS.batch_size, FLAGS.num_epochs)
+            list(zip(x_train, y_train, x1_train, x2_train, x3_train)),
+            FLAGS.batch_size, FLAGS.num_epochs)
         # Training loop. For each batch...
         for batch in batches:
-            x_batch, y_batch = zip(*batch)
-            train_step(x_batch, y_batch)
+            x_batch, y_batch, x1_batch, x2_batch, x3_batch = zip(*batch)
+            train_step(x_batch, y_batch, x1_batch, x2_batch, x3_batch)
             current_step = tf.train.global_step(sess, global_step)
             if current_step % FLAGS.evaluate_every == 0:
                 #print("\nEvaluation:")
 
-                dev_step(x_train, y_train, writer=dev_summary_writer)
-                dev_step(x_dev, y_dev, writer=dev_summary_writer)
+                dev_step(x_train, y_train, x1_train, x2_train, x3_train, writer=dev_summary_writer)
+                dev_step(x_dev, y_dev, x1_train, x2_train, x3_train, writer=dev_summary_writer)
 
                 #print("")
             #if current_step % FLAGS.checkpoint_every == 0:

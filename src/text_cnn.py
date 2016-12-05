@@ -1,4 +1,6 @@
 import tensorflow as tf
+from tensorflow.python.ops import rnn, rnn_cell
+from tensorflow.python.ops import variable_scope as vs
 import numpy as np
 from rio import load_id2vec
 import collections
@@ -10,8 +12,11 @@ class TextCNN(object):
     Uses an embedding layer, followed by a convolutional, max-pooling and softmax layer.
     """
     def __init__(
-      self, B, sequence_length, num_classes, vocab_size,
+      self, B, sequence_length, sequence_length1, sequence_length2, sequence_length3,
+      num_classes, vocab_size,
       embedding_size, filter_sizes, num_filters, l2_reg_lambda=0.0):
+
+        ######## cnn ########
 
         # Placeholders for input, output and dropout
         self.B = B
@@ -19,11 +24,16 @@ class TextCNN(object):
         self.input_y = tf.placeholder(tf.float32, [B, num_classes], name="input_y")
         self.dropout_keep_prob = tf.placeholder(tf.float32, name="dropout_keep_prob")
 
+        # 3 seg lstm
+        self.input_x1 = tf.placeholder(tf.int32, [B, sequence_length1], name="input_x1")
+        self.input_x2 = tf.placeholder(tf.int32, [B, sequence_length2], name="input_x2")
+        self.input_x3 = tf.placeholder(tf.int32, [B, sequence_length3], name="input_x3")
+
         # Keeping track of l2 regularization loss (optional)
         l2_loss = tf.constant(0.0)
 
         # Embedding layer
-        with tf.device('/cpu:0'), tf.name_scope("embedding"):
+        with tf.name_scope("embedding"):
             # temp = tf.random_uniform([vocab_size, embedding_size], -1.0, 1.0)
             # W = tf.Variable(
             #     tf.random_uniform([vocab_size, embedding_size], -1.0, 1.0),
@@ -53,6 +63,10 @@ class TextCNN(object):
 
             self.embedded_chars = tf.nn.embedding_lookup(W, self.input_x)
             self.embedded_chars_expanded = tf.expand_dims(self.embedded_chars, -1)
+
+            self.x1 = tf.nn.embedding_lookup(W, self.input_x1)
+            self.x2 = tf.nn.embedding_lookup(W, self.input_x2)
+            self.x3 = tf.nn.embedding_lookup(W, self.input_x3)
 
         # Create a convolution + maxpool layer for each filter size
         #pooled_outputs = []
@@ -126,20 +140,56 @@ class TextCNN(object):
         num_filters_total = num_filters * len(filter_sizes)
         # self.h_pool = tf.concat(3, pooled_outputs)
         # self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
+        # self.c_outputs = tf.concat(1, c_outputs)
+        # self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
+
+        ######## lstm ########
+        n_lstm_hidden = 30
+
+        def bilstm(scope, input_x, n_hidden=n_lstm_hidden):
+            # returns output, state
+            _, n_steps, n_input = input_x.get_shape()
+            n_steps, n_input = n_steps.value, n_input.value
+            x = tf.transpose(input_x, [1, 0, 2])
+            x = tf.reshape(x, [-1, n_input])
+            x = tf.split(0, n_steps, x)
+            lstm_fw_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
+            lstm_bw_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
+            output, _, _ = rnn.bidirectional_rnn(lstm_fw_cell, lstm_bw_cell, x,
+                                                 dtype=tf.float32, scope=scope)
+            return output[-1]
+
+        lstm_outputs = []
+        lstm_outputs.append(bilstm('lstm1', self.x1))
+        lstm_outputs.append(bilstm('lstm2', self.x2))
+        lstm_outputs.append(bilstm('lstm3', self.x3))
+
+        # concat
+        self.lstm_outputs = tf.concat(1, lstm_outputs)
         self.c_outputs = tf.concat(1, c_outputs)
         self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
 
         # Add dropout
         with tf.name_scope("dropout"):
-            self.h_drop = tf.nn.dropout(self.c_outputs_flat, self.dropout_keep_prob)
+            # self.h_drop = tf.nn.dropout(self.c_outputs_flat, self.dropout_keep_prob)
+            self.h_drop = tf.nn.dropout(self.lstm_outputs, self.dropout_keep_prob)
 
         # Final (unnormalized) scores and predictions
         with tf.name_scope("output"):
+            # cnn
+            # W = tf.get_variable(
+            #     "W",
+            #     shape=[num_filters_total, num_classes],
+            #     initializer=tf.contrib.layers.xavier_initializer())
+            # b = tf.Variable(tf.constant(0.1, shape=[num_classes]), name="b")
+
+            # lstm
             W = tf.get_variable(
                 "W",
-                shape=[num_filters_total, num_classes],
+                shape=[n_lstm_hidden*6, num_classes],
                 initializer=tf.contrib.layers.xavier_initializer())
             b = tf.Variable(tf.constant(0.1, shape=[num_classes]), name="b")
+
             l2_loss += tf.nn.l2_loss(W)
             l2_loss += tf.nn.l2_loss(b)
             self.scores = tf.nn.xw_plus_b(self.h_drop, W, b, name="scores")
