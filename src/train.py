@@ -59,6 +59,7 @@ print("Loading data...")
 sz = 8000
 # sz = 200
 
+n_classes = 19
 vocabulary_size = 22132
 marker1 = vocabulary_size
 marker2 = vocabulary_size + 1
@@ -216,6 +217,7 @@ with tf.Graph().as_default():
         # Initialize all variables
         sess.run(tf.initialize_all_variables())
 
+        # obsolete
         def train_step(x_batch, y_batch, seg1_batch, seg2_batch, seg3_batch, seg4_batch, entities_batch):
             """
             A single training step
@@ -230,19 +232,23 @@ with tf.Graph().as_default():
               cnn.entities: entities_batch,
               cnn.dropout_keep_prob: FLAGS.dropout_keep_prob
             }
-            _, step, summaries, loss, accuracy = sess.run(
-                [train_op, global_step, train_summary_op, cnn.loss, cnn.accuracy],
+            _, step, summaries, loss, accuracy, pred, gt = sess.run(
+                [train_op, global_step, train_summary_op, cnn.loss, cnn.accuracy,
+                 cnn.predictions, cnn.groundtruth],
                 feed_dict)
-            #time_str = datetime.datetime.now().isoformat()
-            #if step % 20 == 0:
-            #    print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
-            #train_summary_writer.add_summary(summaries, step)
 
         def dev_step(x_all, y_all, seg1_all, seg2_all, seg3_all, seg4_all, entities_all, writer=None):
             """
             Evaluates model on a dev set
             """
-            all_loss, all_acc = 0.0, 0.0
+            all_loss = 0.0
+
+            # class 18 is other; ignore it
+            preds = [set() for _ in xrange(n_classes-1)]
+            gts   = [set() for _ in xrange(n_classes-1)]
+            precs = [0.] * (n_classes-1)
+            recs  = [0.] * (n_classes-1)
+
             num_batches = len(x_all) / FLAGS.batch_size
             for i in range(num_batches):
                 start_index = i * FLAGS.batch_size
@@ -264,23 +270,38 @@ with tf.Graph().as_default():
                   cnn.entities: entities_batch,
                   cnn.dropout_keep_prob: 1.0
                 }
-                step, summaries, loss, accuracy = sess.run(
-                    [global_step, dev_summary_op, cnn.loss, cnn.accuracy], feed_dict)
+                step, summaries, loss, accuracy, pred, gt = sess.run(
+                    [global_step, dev_summary_op, cnn.loss, cnn.accuracy,
+                     cnn.predictions, cnn.groundtruth], feed_dict)
                 all_loss += loss
-                all_acc += accuracy
+
+                # ignore last one, which is 'other'
+                for k in xrange(n_classes-1):
+                    pred_ids = np.where(pred == k)[0] + start_index
+                    gt_ids   = np.where(gt   == k)[0] + start_index
+                    preds[k] |= set(pred_ids)
+                    gts[k]   |= set(gt_ids)
 
             all_loss /= num_batches
-            all_acc /= num_batches
             time_str = datetime.datetime.now().isoformat()
 
-            # TODO: get W
-            # with tf.variable_scope('embedding', reuse=True):
-            #     W = tf.get_variable('W', [vocabulary_size+3, FLAGS.embedding_dim])
-            #     print
-            #     print 'W:', W[-3:, :10]
-            #     print
+            n_skips = 0
+            for k in xrange(n_classes-1):
+                tp = len(preds[k] & gts[k])
+                fp = len(preds[k] - gts[k])
+                fn = len(gts[k] - preds[k])
+                if tp+fp and tp+fn:
+                    precs[k] = float(tp) / (tp+fp)
+                    recs[k]  = float(tp) / (tp+fn)
+                else:
+                    precs[k] = recs[k] = 0.
+                    n_skips += 1
 
-            print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, all_loss, all_acc))
+            prec = sum(precs) / (n_classes-1-n_skips)
+            rec  = sum(recs)  / (n_classes-1-n_skips)
+            acc  = 2 * prec * rec / (prec + rec)
+
+            print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, all_loss, acc))
 
             #if writer:
             #    writer.add_summary(summaries, step)
