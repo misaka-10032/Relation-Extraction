@@ -78,8 +78,8 @@ class TextCNN(object):
             self.x3 = tf.nn.embedding_lookup(W, self.input_seg3)
             self.x4 = tf.nn.embedding_lookup(W, self.input_seg4)
 
+            # (B, 2, D)
             self.e = tf.nn.embedding_lookup(W, self.entities)
-            self.e = tf.reshape(self.e, [B, -1])
 
 
         # Create a convolution + maxpool layer for each filter size
@@ -87,6 +87,7 @@ class TextCNN(object):
         c_outputs = []
         for i, filter_size in enumerate(filter_sizes):
             with tf.name_scope("conv-maxpool-%s" % filter_size):
+
                 # Convolution Layer
                 filter_shape = [filter_size, embedding_size + 2 * position_embedding_size, 1, num_filters]
                 W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.1), name="W")
@@ -108,33 +109,34 @@ class TextCNN(object):
                     strides=[1, 1, 1, 1],
                     padding='VALID',
                     name="pool")
-
                 pooled_outputs.append(pooled)
-
 
                 """ attention
                 # (B, n-k+1, m)
                 h = tf.squeeze(h)
-                # (B*(n-k+1), m)
                 _, n_k_1, _ = h.get_shape()
                 n_k_1 = n_k_1.value
-                h = tf.reshape(h, [self.B*n_k_1, num_filters])
 
-                # (m, m)
-                w1 = tf.Variable(tf.truncated_normal([num_filters, num_filters], stddev=0.1), name="w1")
-                b1 = tf.Variable(tf.constant(0.1, shape=[num_filters]), name="b1")
-                # (B*(n-k+1), m)
-                hw1 = tf.squeeze(tf.matmul(h, w1))
-                hw1 = tf.nn.bias_add(hw1, b1, name='hw1_b1')
-                # (B*(n-k+1), m)
-                tanh_hw1 = tf.tanh(hw1, 'tanh_hw1')
-
+                # (B*2, D)
+                self.e = tf.reshape(self.e, [-1, embedding_size])
+                # (D, m)
+                w1 = tf.Variable(tf.truncated_normal([embedding_size, num_filters], stddev=0.1), name="w1")
                 # (m, 1)
-                v1 = tf.Variable(tf.truncated_normal([num_filters, 1], stddev=0.1), name='v1')
-                # (B*(n-k+1), 1)
-                e = tf.matmul(tanh_hw1, v1, name='e')
+                b1 = tf.Variable(tf.constant(0.1, shape=[num_filters]), name="b1")
+                # (B*2, m)
+                ew1 = tf.squeeze(tf.matmul(self.e, w1))
+                ew1 = tf.nn.bias_add(ew1, b1, name='ew1')
+                # (B*2, m)
+                tanh_ew1 = tf.tanh(ew1)
+                # (B, 2, m)
+                tanh_ew1 = tf.reshape(tanh_ew1, [self.B, 2, num_filters])
+                # (B, m, 2)
+                tanh_ew1 = tf.transpose(tanh_ew1, [0, 2, 1], name='tanh_ew1')
+                # (B, n-k+1, m) (B, m, 2) = (B, n-k+1, 2)
+                h_tanh_ew1 = tf.batch_matmul(h, tanh_ew1, name='h_tanh_ew1')
                 # (B, n-k+1)
-                e = tf.reshape(e, [self.B, n_k_1], name='e')
+                e = tf.reduce_sum(h_tanh_ew1, 2, name='e')
+                e = tf.mul(e, .5, name='e')
 
                 # (B, n-k+1)
                 alpha = tf.nn.softmax(e, name="alpha")
@@ -157,46 +159,57 @@ class TextCNN(object):
 
         # Combine all the pooled features
         num_filters_total = num_filters * len(filter_sizes)
+
+        # pool
         self.h_pool = tf.concat(3, pooled_outputs)
         self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
 
         # attention
-        #self.c_outputs = tf.concat(1, c_outputs)
-        #self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
+        # self.c_outputs = tf.concat(1, c_outputs)
+        # self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
 
-        ######## lstm ########
-        #n_lstm_hidden = 50
-        #def mylstm(scope, input_x, n_hidden=n_lstm_hidden):
-        #    # returns output, state
-        #    _, n_steps, n_input = input_x.get_shape()
-        #    n_steps, n_input = n_steps.value, n_input.value
-        #    x = tf.transpose(input_x, [1, 0, 2])
-        #    x = tf.reshape(x, [-1, n_input])
-        #    x = tf.split(0, n_steps, x)
-        #    lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
-        #    output, _ = rnn.rnn(lstm_cell, x, dtype=tf.float32, scope=scope)
-        #    return output[-1]
+        """ lstm
+        n_lstm_hidden = 50
+        def mylstm(scope, input_x, n_hidden=n_lstm_hidden):
+            # returns output, state
+            _, n_steps, n_input = input_x.get_shape()
+            n_steps, n_input = n_steps.value, n_input.value
+            x = tf.transpose(input_x, [1, 0, 2])
+            x = tf.reshape(x, [-1, n_input])
+            x = tf.split(0, n_steps, x)
+            lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
+            output, _ = rnn.rnn(lstm_cell, x, dtype=tf.float32, scope=scope)
+            return output[-1]
 
-        #lstm_outputs = []
-        #lstm_outputs.append(mylstm('lstm1', self.x1))
-        #lstm_outputs.append(mylstm('lstm4', self.x4))
-        #lstm_outputs.append(mylstm('lstm2', self.x2))
-        #lstm_outputs.append(mylstm('lstm3', self.x3))
+        lstm_outputs = []
+        lstm_outputs.append(mylstm('lstm1', self.x1))
+        lstm_outputs.append(mylstm('lstm4', self.x4))
+        lstm_outputs.append(mylstm('lstm2', self.x2))
+        lstm_outputs.append(mylstm('lstm3', self.x3))
 
         # concat
-        #self.lstm_outputs = tf.concat(1, lstm_outputs)
+        self.lstm_outputs = tf.concat(1, lstm_outputs)
+        """
 
-        # Final forward
+        # reshape entity to be (B, 2*D)
+        self.e = tf.reshape(self.e, [B, -1])
         e_shape = self.e.get_shape()[1].value
-
-        # lstm + cnn
-        #self.final_outputs = tf.concat(1, [self.lstm_outputs, self.h_pool_flat, self.e])
-        #self.final_outputs = tf.concat(1, [self.lstm_outputs, self.h_pool_flat])
-        #final_weight_shape = (n_lstm_hidden * 4 + num_filters_total, num_classes)
 
         # cnn only
         self.final_outputs = tf.concat(1, [self.h_pool_flat])
         final_weight_shape = (num_filters_total, num_classes)
+
+        # lstm+cnn_pool
+        # self.final_outputs = tf.concat(1, [self.lstm_outputs, self.h_pool_flat])
+        # final_weight_shape = (n_lstm_hidden * 4 + num_filters_total, num_classes)
+
+        # cnn+att
+        # self.final_outputs = tf.concat(1, [self.c_outputs_flat])
+        # final_weight_shape = (num_filters_total, num_classes)
+
+        # cnn+pool only
+        # self.final_outputs = tf.concat(1, [self.h_pool_flat])
+        # final_weight_shape = (num_filters_total, num_classes)
 
         final_bias_shape = (num_classes,)
 
