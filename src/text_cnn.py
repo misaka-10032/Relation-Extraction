@@ -60,7 +60,7 @@ class TextCNN(object):
             self.embedded_chars = tf.nn.embedding_lookup(W, self.input_x)
 
             # add position embedding
-            position_embedding_size = 50
+            position_embedding_size = 20
             total_positions = padding_pos_index
             _W_pos = tf.Variable(
                 tf.random_uniform([total_positions, position_embedding_size], -1.0, 1.0),
@@ -188,9 +188,16 @@ class TextCNN(object):
 
         # Final forward
         e_shape = self.e.get_shape()[1].value
+
+        # lstm + cnn
         #self.final_outputs = tf.concat(1, [self.lstm_outputs, self.h_pool_flat, self.e])
+        #self.final_outputs = tf.concat(1, [self.lstm_outputs, self.h_pool_flat])
+        #final_weight_shape = (n_lstm_hidden * 4 + num_filters_total, num_classes)
+
+        # cnn only
         self.final_outputs = tf.concat(1, [self.h_pool_flat])
         final_weight_shape = (num_filters_total, num_classes)
+
         final_bias_shape = (num_classes,)
 
         # Add dropout
@@ -209,6 +216,7 @@ class TextCNN(object):
             l2_loss += tf.nn.l2_loss(b)
             self.scores = tf.nn.xw_plus_b(self.h_drop, W, b, name="scores")
             self.predictions = tf.argmax(self.scores, 1, name="predictions")
+            self.groundtruth = tf.argmax(self.input_y, 1)
 
         # CalculateMean cross-entropy loss
         with tf.name_scope("loss"):
