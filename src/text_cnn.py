@@ -12,7 +12,7 @@ class TextCNN(object):
     Uses an embedding layer, followed by a convolutional, max-pooling and softmax layer.
     """
     def __init__(
-      self, B, sequence_length, sequence_length1, sequence_length2, sequence_length3, sequence_length4,
+      self, B, sequence_length, sequence_length1, sequence_length2, sequence_length3, sequence_length4, padding_pos_index,
       num_classes, vocab_size,
       embedding_size, filter_sizes, num_filters, l2_reg_lambda=0.0):
 
@@ -32,15 +32,14 @@ class TextCNN(object):
 
         self.entities = tf.placeholder(tf.int32, [B, 2], name="entities")
 
+        self.positions1 = tf.placeholder(tf.int32, [B, sequence_length], name="positions")
+        self.positions2 = tf.placeholder(tf.int32, [B, sequence_length], name="positions")
+
         # Keeping track of l2 regularization loss (optional)
         l2_loss = tf.constant(0.0)
 
         # Embedding layer
         with tf.name_scope("embedding"):
-            # temp = tf.random_uniform([vocab_size, embedding_size], -1.0, 1.0)
-            # W = tf.Variable(
-            #     tf.random_uniform([vocab_size, embedding_size], -1.0, 1.0),
-            #     name="W")
 
             id2vec = load_id2vec("../data/id2vec.bin")
 
@@ -50,25 +49,29 @@ class TextCNN(object):
             od = [item[1] for item in sorted(id2vec.items())]
             od.insert(0,[0]*50)
             id2vec1 = np.array(od, dtype=np.float32)
-            #id2vec1.astype(np.float32)
 
-            # init = tf.constant(id2vec1)
-            # temp1 = tf.get_variable('embedding',initializer = init)
-            # tf.Variable(tf.convert_to_tensor(np.eye(784), dtype=tf.float32))
-            # temp1 = tf.Variable(initial_value=id2vec1)
             _W = tf.Variable(
                 tf.convert_to_tensor(id2vec1, dtype=tf.float32),
                 name="_W")
-            #marker1 = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=False)
-            #marker2 = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=False)
-            #padding = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=False)
             marker1 = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=True)
             marker2 = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=True)
             padding = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=True)
             W = tf.concat(0, [_W, marker1, marker2, padding], name='W')
-
             self.embedded_chars = tf.nn.embedding_lookup(W, self.input_x)
-            self.embedded_chars_expanded = tf.expand_dims(self.embedded_chars, -1)
+
+            # add position embedding
+            position_embedding_size = 50
+            total_positions = padding_pos_index
+            _W_pos = tf.Variable(
+                tf.random_uniform([total_positions, position_embedding_size], -1.0, 1.0),
+                name="_W_pos")
+            pos_padding = tf.Variable(np.zeros([1, position_embedding_size], dtype=np.float32), trainable=True)
+            W_pos = tf.concat(0, [_W_pos, pos_padding], name='W_pos')
+            self.pos1_emb = tf.nn.embedding_lookup(W_pos, self.positions1)
+            self.pos2_emb = tf.nn.embedding_lookup(W_pos, self.positions2)
+
+            self.cnn_emb = tf.concat(2, [self.embedded_chars, self.pos1_emb, self.pos2_emb])
+            self.embedded_chars_expanded = tf.expand_dims(self.cnn_emb, -1)
 
             self.x1 = tf.nn.embedding_lookup(W, self.input_seg1)
             self.x2 = tf.nn.embedding_lookup(W, self.input_seg2)
@@ -78,13 +81,14 @@ class TextCNN(object):
             self.e = tf.nn.embedding_lookup(W, self.entities)
             self.e = tf.reshape(self.e, [B, -1])
 
+
         # Create a convolution + maxpool layer for each filter size
         pooled_outputs = []
         c_outputs = []
         for i, filter_size in enumerate(filter_sizes):
             with tf.name_scope("conv-maxpool-%s" % filter_size):
                 # Convolution Layer
-                filter_shape = [filter_size, embedding_size, 1, num_filters]
+                filter_shape = [filter_size, embedding_size + 2 * position_embedding_size, 1, num_filters]
                 W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.1), name="W")
                 b = tf.Variable(tf.constant(0.1, shape=[num_filters]), name="b")
                 conv = tf.nn.conv2d(
@@ -161,32 +165,32 @@ class TextCNN(object):
         #self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
 
         ######## lstm ########
-        n_lstm_hidden = 50
-        def mylstm(scope, input_x, n_hidden=n_lstm_hidden):
-            # returns output, state
-            _, n_steps, n_input = input_x.get_shape()
-            n_steps, n_input = n_steps.value, n_input.value
-            x = tf.transpose(input_x, [1, 0, 2])
-            x = tf.reshape(x, [-1, n_input])
-            x = tf.split(0, n_steps, x)
-            lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
-            output, _ = rnn.rnn(lstm_cell, x, dtype=tf.float32, scope=scope)
-            return output[-1]
+        #n_lstm_hidden = 50
+        #def mylstm(scope, input_x, n_hidden=n_lstm_hidden):
+        #    # returns output, state
+        #    _, n_steps, n_input = input_x.get_shape()
+        #    n_steps, n_input = n_steps.value, n_input.value
+        #    x = tf.transpose(input_x, [1, 0, 2])
+        #    x = tf.reshape(x, [-1, n_input])
+        #    x = tf.split(0, n_steps, x)
+        #    lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
+        #    output, _ = rnn.rnn(lstm_cell, x, dtype=tf.float32, scope=scope)
+        #    return output[-1]
 
-        lstm_outputs = []
-        lstm_outputs.append(mylstm('lstm1', self.x1))
-        lstm_outputs.append(mylstm('lstm4', self.x4))
-        lstm_outputs.append(mylstm('lstm2', self.x2))
-        lstm_outputs.append(mylstm('lstm3', self.x3))
+        #lstm_outputs = []
+        #lstm_outputs.append(mylstm('lstm1', self.x1))
+        #lstm_outputs.append(mylstm('lstm4', self.x4))
+        #lstm_outputs.append(mylstm('lstm2', self.x2))
+        #lstm_outputs.append(mylstm('lstm3', self.x3))
 
         # concat
-        self.lstm_outputs = tf.concat(1, lstm_outputs)
+        #self.lstm_outputs = tf.concat(1, lstm_outputs)
 
         # Final forward
         e_shape = self.e.get_shape()[1].value
         #self.final_outputs = tf.concat(1, [self.lstm_outputs, self.h_pool_flat, self.e])
-        self.final_outputs = tf.concat(1, [self.lstm_outputs, self.h_pool_flat])
-        final_weight_shape = (n_lstm_hidden * 4 + num_filters_total, num_classes)
+        self.final_outputs = tf.concat(1, [self.h_pool_flat])
+        final_weight_shape = (num_filters_total, num_classes)
         final_bias_shape = (num_classes,)
 
         # Add dropout
