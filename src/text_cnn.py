@@ -7,16 +7,11 @@ import collections
 
 
 class TextCNN(object):
-    """
-    A CNN for text classification.
-    Uses an embedding layer, followed by a convolutional, max-pooling and softmax layer.
-    """
+
     def __init__(
       self, B, sequence_length, sequence_length1, sequence_length2, sequence_length3, sequence_length4, padding_pos_index,
       num_classes, vocab_size,
       embedding_size, filter_sizes, num_filters, l2_reg_lambda=0.0):
-
-        ######## cnn ########
 
         # Placeholders for input, output and dropout
         self.B = B
@@ -24,14 +19,16 @@ class TextCNN(object):
         self.input_y = tf.placeholder(tf.float32, [B, num_classes], name="input_y")
         self.dropout_keep_prob = tf.placeholder(tf.float32, name="dropout_keep_prob")
 
-        # 3 seg lstm
+        # seg lstm
         self.input_seg1 = tf.placeholder(tf.int32, [B, sequence_length1], name="input_seg1")
         self.input_seg2 = tf.placeholder(tf.int32, [B, sequence_length2], name="input_seg2")
         self.input_seg3 = tf.placeholder(tf.int32, [B, sequence_length3], name="input_seg3")
         self.input_seg4 = tf.placeholder(tf.int32, [B, sequence_length4], name="input_seg4")
 
+        # entities
         self.entities = tf.placeholder(tf.int32, [B, 2], name="entities")
 
+        # positions
         self.positions1 = tf.placeholder(tf.int32, [B, sequence_length], name="positions")
         self.positions2 = tf.placeholder(tf.int32, [B, sequence_length], name="positions")
 
@@ -41,15 +38,11 @@ class TextCNN(object):
         # Embedding layer
         with tf.name_scope("embedding"):
 
+            # word embeddings
             id2vec = load_id2vec("../data/id2vec.bin")
-
-            # add marker
-            # replace two entities with two markers
-
             od = [item[1] for item in sorted(id2vec.items())]
             od.insert(0,[0]*50)
             id2vec1 = np.array(od, dtype=np.float32)
-
             _W = tf.Variable(
                 tf.convert_to_tensor(id2vec1, dtype=tf.float32),
                 name="_W")
@@ -57,10 +50,10 @@ class TextCNN(object):
             marker2 = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=True)
             padding = tf.Variable(np.zeros([1, id2vec1.shape[1]], dtype=np.float32), trainable=True)
             W = tf.concat(0, [_W, marker1, marker2, padding], name='W')
-            self.embedded_chars = tf.nn.embedding_lookup(W, self.input_x)
+            self.cnn_emb = tf.nn.embedding_lookup(W, self.input_x)
 
-            # add position embedding
-            position_embedding_size = 20
+            # position embedding
+            position_embedding_size = 50
             total_positions = padding_pos_index
             _W_pos = tf.Variable(
                 tf.random_uniform([total_positions, position_embedding_size], -1.0, 1.0),
@@ -70,17 +63,45 @@ class TextCNN(object):
             self.pos1_emb = tf.nn.embedding_lookup(W_pos, self.positions1)
             self.pos2_emb = tf.nn.embedding_lookup(W_pos, self.positions2)
 
-            self.cnn_emb = tf.concat(2, [self.embedded_chars, self.pos1_emb, self.pos2_emb])
-            self.embedded_chars_expanded = tf.expand_dims(self.cnn_emb, -1)
+            # combine word emb and pos emb
+            self.embedded_chars = tf.concat(2, [self.cnn_emb, self.pos1_emb, self.pos2_emb])
+            self.embedded_chars_expanded = tf.expand_dims(self.embedded_chars, -1)
 
+            # lstm seg embedding
             self.x1 = tf.nn.embedding_lookup(W, self.input_seg1)
             self.x2 = tf.nn.embedding_lookup(W, self.input_seg2)
             self.x3 = tf.nn.embedding_lookup(W, self.input_seg3)
             self.x4 = tf.nn.embedding_lookup(W, self.input_seg4)
 
-            # (B, 2, D)
+            # entity embedding (B, 2, D)
             self.e = tf.nn.embedding_lookup(W, self.entities)
 
+
+        # lstm
+        n_lstm_hidden = 50
+        def mylstm(scope, input_x, n_hidden=n_lstm_hidden):
+            # returns output, state
+            _, n_steps, n_input = input_x.get_shape()
+            n_steps, n_input = n_steps.value, n_input.value
+            x = tf.transpose(input_x, [1, 0, 2])
+            x = tf.reshape(x, [-1, n_input])
+            x = tf.split(0, n_steps, x)
+            lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
+            output, _ = rnn.rnn(lstm_cell, x, dtype=tf.float32, scope=scope)
+            return output[-1]
+
+        lstm_outputs = []
+        lstm_outputs.append(mylstm('lstm1', self.x1))
+        lstm_outputs.append(mylstm('lstm4', self.x4))
+        lstm_outputs.append(mylstm('lstm2', self.x2))
+        lstm_outputs.append(mylstm('lstm3', self.x3))
+
+        # concat
+        self.lstm_outputs = tf.concat(1, lstm_outputs)
+
+        # lstm as input for attention
+        self.lstm_emb1 = tf.concat(1, [lstm_outputs[0], lstm_outputs[1]])
+        self.lstm_emb2 = tf.concat(1, [lstm_outputs[2], lstm_outputs[3]])
 
         # Create a convolution + maxpool layer for each filter size
         pooled_outputs = []
@@ -102,46 +123,71 @@ class TextCNN(object):
                 # (B, n-k+1, 1, m)
                 h = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu")
 
-                """ Maxpooling over the outputs """
-                pooled = tf.nn.max_pool(
-                    h,
-                    ksize=[1, sequence_length - filter_size + 1, 1, 1],
-                    strides=[1, 1, 1, 1],
-                    padding='VALID',
-                    name="pool")
-                pooled_outputs.append(pooled)
+                # Maxpooling over the outputs
+                #pooled = tf.nn.max_pool(
+                #    h,
+                #    ksize=[1, sequence_length - filter_size + 1, 1, 1],
+                #    strides=[1, 1, 1, 1],
+                #    padding='VALID',
+                #    name="pool")
+                #pooled_outputs.append(pooled)
 
-                """ attention
+                # attention
                 # (B, n-k+1, m)
                 h = tf.squeeze(h)
                 _, n_k_1, _ = h.get_shape()
                 n_k_1 = n_k_1.value
 
+                # Entity embedding based attention
                 # (B*2, D)
-                self.e = tf.reshape(self.e, [-1, embedding_size])
-                # (D, m)
-                w1 = tf.Variable(tf.truncated_normal([embedding_size, num_filters], stddev=0.1), name="w1")
+                #self.e = tf.reshape(self.e, [-1, embedding_size])
+                ## (D, m)
+                #w1 = tf.Variable(tf.truncated_normal([embedding_size, num_filters], stddev=0.1), name="w1")
+                ## (m, 1)
+                #b1 = tf.Variable(tf.constant(0.1, shape=[num_filters]), name="b1")
+                ## (B*2, m)
+                #ew1 = tf.squeeze(tf.matmul(self.e, w1))
+                #ew1 = tf.nn.bias_add(ew1, b1, name='ew1')
+                ## (B*2, m)
+                #tanh_ew1 = tf.tanh(ew1)
+                ## (B, 2, m)
+                #tanh_ew1 = tf.reshape(tanh_ew1, [self.B, 2, num_filters])
+                ## (B, m, 2)
+                #tanh_ew1 = tf.transpose(tanh_ew1, [0, 2, 1], name='tanh_ew1')
+                ## (B, n-k+1, m) (B, m, 2) = (B, n-k+1, 2)
+                #h_tanh_ew1 = tf.batch_matmul(h, tanh_ew1, name='h_tanh_ew1')
+                ## (B, n-k+1)
+                #e = tf.reduce_sum(h_tanh_ew1, 2, name='e')
+                #e = tf.mul(e, .5, name='e')
+                # (B, n-k+1)
+                #alpha = tf.nn.softmax(e, name="alpha")
+                # (B, n-k+1, 1)
+                #alpha = tf.reshape(alpha, [self.B, n_k_1, 1], name="alpha")
+
+                # LSTM base attention
+                # (lstm_size * 2, m)
+                w1 = tf.Variable(tf.truncated_normal([n_lstm_hidden * 2, num_filters], stddev=0.1), name="w1")
                 # (m, 1)
                 b1 = tf.Variable(tf.constant(0.1, shape=[num_filters]), name="b1")
-                # (B*2, m)
-                ew1 = tf.squeeze(tf.matmul(self.e, w1))
+                # (B, lstm_size*2) dot (lstm_size*2, m) = (B, m)
+                ew1 = tf.squeeze(tf.matmul(self.lstm_emb1, w1))
+                ew2 = tf.squeeze(tf.matmul(self.lstm_emb2, w1))
                 ew1 = tf.nn.bias_add(ew1, b1, name='ew1')
-                # (B*2, m)
                 tanh_ew1 = tf.tanh(ew1)
-                # (B, 2, m)
-                tanh_ew1 = tf.reshape(tanh_ew1, [self.B, 2, num_filters])
-                # (B, m, 2)
-                tanh_ew1 = tf.transpose(tanh_ew1, [0, 2, 1], name='tanh_ew1')
-                # (B, n-k+1, m) (B, m, 2) = (B, n-k+1, 2)
-                h_tanh_ew1 = tf.batch_matmul(h, tanh_ew1, name='h_tanh_ew1')
-                # (B, n-k+1)
-                e = tf.reduce_sum(h_tanh_ew1, 2, name='e')
-                e = tf.mul(e, .5, name='e')
+                tanh_ew2 = tf.tanh(ew2)
+                # change tanh_ew to (B, m, 1) for batch mul
+                tanh_ew1 = tf.reshape(tanh_ew1, [self.B, num_filters, 1])
+                tanh_ew2 = tf.reshape(tanh_ew2, [self.B, num_filters, 1])
+                # (B, n-k+1, m) (B, m, 1) = (B, n-k+1, 1) => (B, n-k+1)
+                h_tanh_ew1 = tf.squeeze(tf.batch_matmul(h, tanh_ew1, name='h_tanh_ew1'))
+                h_tanh_ew2 = tf.squeeze(tf.batch_matmul(h, tanh_ew2, name='h_tanh_ew2'))
+                # Get mean among two alpha
+                alpha1 = tf.nn.softmax(h_tanh_ew1, name='alpha1')
+                alpha2 = tf.nn.softmax(h_tanh_ew2, name='alpha2')
 
-                # (B, n-k+1)
-                alpha = tf.nn.softmax(e, name="alpha")
-                # (B, n-k+1, 1)
-                alpha = tf.reshape(alpha, [self.B, n_k_1, 1], name="alpha")
+                alpha = tf.add(alpha1, alpha2, name='alpha')
+                alpha = tf.mul(alpha, .5, name='alpha')
+                alpha = tf.reshape(alpha, [self.B, n_k_1, 1])
 
                 # (B, n-k+1, m)
                 h = tf.reshape(h, [self.B, n_k_1, num_filters])
@@ -155,57 +201,35 @@ class TextCNN(object):
                 c = tf.squeeze(c, name="c")
 
                 c_outputs.append(c)
-                """
+
 
         # Combine all the pooled features
         num_filters_total = num_filters * len(filter_sizes)
 
         # pool
-        self.h_pool = tf.concat(3, pooled_outputs)
-        self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
+        #self.h_pool = tf.concat(3, pooled_outputs)
+        #self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
 
         # attention
-        # self.c_outputs = tf.concat(1, c_outputs)
-        # self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
+        self.c_outputs = tf.concat(1, c_outputs)
+        self.c_outputs_flat = tf.reshape(self.c_outputs, [-1, num_filters_total])
 
-        """ lstm
-        n_lstm_hidden = 50
-        def mylstm(scope, input_x, n_hidden=n_lstm_hidden):
-            # returns output, state
-            _, n_steps, n_input = input_x.get_shape()
-            n_steps, n_input = n_steps.value, n_input.value
-            x = tf.transpose(input_x, [1, 0, 2])
-            x = tf.reshape(x, [-1, n_input])
-            x = tf.split(0, n_steps, x)
-            lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
-            output, _ = rnn.rnn(lstm_cell, x, dtype=tf.float32, scope=scope)
-            return output[-1]
-
-        lstm_outputs = []
-        lstm_outputs.append(mylstm('lstm1', self.x1))
-        lstm_outputs.append(mylstm('lstm4', self.x4))
-        lstm_outputs.append(mylstm('lstm2', self.x2))
-        lstm_outputs.append(mylstm('lstm3', self.x3))
-
-        # concat
-        self.lstm_outputs = tf.concat(1, lstm_outputs)
-        """
 
         # reshape entity to be (B, 2*D)
-        self.e = tf.reshape(self.e, [B, -1])
-        e_shape = self.e.get_shape()[1].value
+        #self.e = tf.reshape(self.e, [B, -1])
+        #e_shape = self.e.get_shape()[1].value
 
         # cnn only
-        self.final_outputs = tf.concat(1, [self.h_pool_flat])
-        final_weight_shape = (num_filters_total, num_classes)
+        #self.final_outputs = tf.concat(1, [self.h_pool_flat])
+        #final_weight_shape = (num_filters_total, num_classes)
 
         # lstm+cnn_pool
         # self.final_outputs = tf.concat(1, [self.lstm_outputs, self.h_pool_flat])
         # final_weight_shape = (n_lstm_hidden * 4 + num_filters_total, num_classes)
 
         # cnn+att
-        # self.final_outputs = tf.concat(1, [self.c_outputs_flat])
-        # final_weight_shape = (num_filters_total, num_classes)
+        self.final_outputs = tf.concat(1, [self.c_outputs_flat])
+        final_weight_shape = (num_filters_total, num_classes)
 
         # cnn+pool only
         # self.final_outputs = tf.concat(1, [self.h_pool_flat])
