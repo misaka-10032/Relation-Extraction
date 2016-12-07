@@ -53,7 +53,7 @@ class TextCNN(object):
             self.cnn_emb = tf.nn.embedding_lookup(W, self.input_x)
 
             # position embedding
-            position_embedding_size = 20
+            position_embedding_size = 50
             total_positions = padding_pos_index
             _W_pos = tf.Variable(
                 tf.random_uniform([total_positions, position_embedding_size], -1.0, 1.0),
